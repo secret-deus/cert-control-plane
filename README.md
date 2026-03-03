@@ -121,6 +121,7 @@ docker-compose up -d
 | GET | `/api/control/agents` | Agent 列表 (分页) |
 | GET | `/api/control/agents/{id}` | 查询单个 Agent |
 | DELETE | `/api/control/agents/{id}` | 删除 Agent |
+| POST | `/api/control/agents/{id}/reset-token` | 重置 Bootstrap Token (用于重新注册) |
 
 **证书管理**
 
@@ -146,7 +147,7 @@ docker-compose up -d
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/control/audit-logs` | 查询审计日志 (分页) |
+| GET | `/api/control/audit` | 查询审计日志 (分页) |
 
 ## 证书续期流程 (CSR 模式)
 
@@ -325,7 +326,9 @@ cert-control-plane/
 - **私钥不出节点**: CSR 模式下，Agent 在本地生成 RSA 私钥，只提交 CSR 给控制面板
 - **mTLS 双向认证**: Agent API 端口 (8443) 强制验证客户端证书
 - **端口隔离**: 443 端口无法访问 Agent 端点，防止运维侧绕过 mTLS 下载 bundle
-- **Header 防伪**: 443 端口主动清除 `X-Client-CN` / `X-Client-Verified` 头
+- **证书序列号绑定**: Agent 认证不仅检查 CN，还校验证书序列号与 DB 中的当前证书匹配
+- **运行时吊销**: 吊销后的证书立即被拒绝，不仅是 DB 标记
+- **Header 防伪**: 443 端口主动清除 `X-Client-CN` / `X-Client-Serial` / `X-Client-Verified` 头
 - **Bootstrap Token**: 一次性使用，注册后立即作废；支持过期时间（默认 24 小时）
 - **密钥加密存储**: 服务端生成的私钥使用 Fernet 加密后存入数据库
 - **systemd 加固**: `NoNewPrivileges=true`, `ProtectSystem=strict`, `ProtectHome=true`
@@ -342,6 +345,7 @@ cert-control-plane/
 | `CA_KEY_PATH` | 否 | `/certs/ca.key` | CA 私钥路径 |
 | `CERT_VALIDITY_DAYS` | 否 | `365` | 签发证书有效期 (天) |
 | `BOOTSTRAP_TOKEN_EXPIRE_HOURS` | 否 | `24` | Bootstrap token 过期时间 |
+| `STRICT_CA_STARTUP` | 否 | `true` | CA 缺失时是否中断启动 (dev 可设 false) |
 | `ROLLOUT_INTERVAL_SECONDS` | 否 | `30` | 编排器轮询间隔 |
 | `ROLLOUT_ITEM_TIMEOUT_MINUTES` | 否 | `10` | Rollout item 超时时间 |
 
