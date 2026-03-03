@@ -23,12 +23,19 @@ _scheduler: AsyncIOScheduler | None = None
 async def lifespan(app: FastAPI):
     settings = get_settings()
 
-    if os.path.exists(settings.ca_cert_path) and os.path.exists(settings.ca_key_path):
+    ca_exists = os.path.exists(settings.ca_cert_path) and os.path.exists(settings.ca_key_path)
+    if ca_exists:
         load_ca(settings.ca_cert_path, settings.ca_key_path)
         logger.info("CA loaded from %s", settings.ca_cert_path)
+    elif settings.strict_ca_startup:
+        raise RuntimeError(
+            f"CA files not found ({settings.ca_cert_path} / {settings.ca_key_path}). "
+            "Run scripts/init_ca.py first, or set STRICT_CA_STARTUP=false for dev mode."
+        )
     else:
         logger.warning(
-            "CA files not found (%s / %s). Run scripts/init_ca.py first.",
+            "CA files not found (%s / %s). Running in degraded mode. "
+            "Register/renew will fail until CA is loaded.",
             settings.ca_cert_path,
             settings.ca_key_path,
         )

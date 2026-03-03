@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     # Bootstrap token expiry (hours)
     bootstrap_token_expire_hours: int = 24
 
+    # Startup behavior
+    strict_ca_startup: bool = True  # Fail-fast if CA files missing at startup
+
     # Orchestrator
     rollout_interval_seconds: int = 30
     default_batch_size: int = 10
