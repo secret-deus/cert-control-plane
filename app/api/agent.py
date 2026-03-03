@@ -2,9 +2,11 @@
 
 Authentication:
   - /register  : one-time bootstrap_token in request body
-  - other endpoints: mTLS client cert → X-Client-CN header injected by nginx
+  - other endpoints: mTLS client cert → X-Client-CN + X-Client-Serial headers
+    injected by nginx.  Both headers are **mandatory** (fail-closed).
 """
 
+import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
@@ -26,6 +28,15 @@ from app.schemas import (
     HeartbeatResponse,
 )
 
+logger = logging.getLogger(__name__)
+
+# Auth deny reason codes – machine-parsable, used in HTTP detail and logs.
+DENY_MISSING_CN = "missing_client_cn"
+DENY_MISSING_SERIAL = "missing_client_serial"
+DENY_AGENT_NOT_ACTIVE = "agent_not_active"
+DENY_NO_CURRENT_CERT = "no_current_cert"
+DENY_SERIAL_MISMATCH = "serial_mismatch"
+
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 
 
@@ -41,17 +52,33 @@ async def _resolve_agent(
 ) -> Agent:
     """Resolve nginx-injected identity headers to an active Agent.
 
+    **Fail-closed**: both ``X-Client-CN`` and ``X-Client-Serial`` are
+    mandatory.  Missing or blank values are rejected immediately.
+
     Validates:
       1. X-Client-CN present (mTLS verified by nginx)
-      2. Agent exists and is ACTIVE
-      3. Current certificate is not revoked
-      4. Client cert serial matches the current certificate's serial_hex
+      2. X-Client-Serial present (fail-closed — MUST be provided)
+      3. Agent exists and is ACTIVE
+      4. Current certificate is not revoked
+      5. Client cert serial matches the current certificate's serial_hex
     """
+    # --- 1. CN ---
     if not x_client_cn:
+        logger.warning("auth denied: %s", DENY_MISSING_CN)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="mTLS client certificate required (X-Client-CN header missing)",
+            detail=DENY_MISSING_CN,
         )
+
+    # --- 2. Serial header (fail-closed) ---
+    if not x_client_serial:
+        logger.warning("auth denied: %s (cn=%s)", DENY_MISSING_SERIAL, x_client_cn)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=DENY_MISSING_SERIAL,
+        )
+
+    # --- 3. Active agent lookup ---
     result = await db.execute(
         select(Agent).where(
             Agent.name == x_client_cn,
@@ -60,12 +87,13 @@ async def _resolve_agent(
     )
     agent = result.scalar_one_or_none()
     if not agent:
+        logger.warning("auth denied: %s (cn=%s)", DENY_AGENT_NOT_ACTIVE, x_client_cn)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"No active agent for CN '{x_client_cn}'",
+            detail=DENY_AGENT_NOT_ACTIVE,
         )
 
-    # Verify the presented cert matches the current active, non-revoked cert
+    # --- 4. Current non-revoked cert ---
     cert_result = await db.execute(
         select(Certificate).where(
             Certificate.agent_id == agent.id,
@@ -75,20 +103,28 @@ async def _resolve_agent(
     )
     current_cert = cert_result.scalar_one_or_none()
     if not current_cert:
+        logger.warning("auth denied: %s (cn=%s)", DENY_NO_CURRENT_CERT, x_client_cn)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Agent has no valid (non-revoked) current certificate",
+            detail=DENY_NO_CURRENT_CERT,
         )
 
-    # Normalize and compare serial: nginx $ssl_client_serial is colon-separated
-    # hex (e.g. "0A:1B:2C"), our DB stores lowercase continuous hex ("0a1b2c")
-    if x_client_serial:
-        presented_serial = x_client_serial.replace(":", "").lower()
-        if presented_serial != current_cert.serial_hex:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Client certificate serial does not match current active certificate",
-            )
+    # --- 5. Serial match ---
+    # nginx $ssl_client_serial is colon-separated hex (e.g. "0A:1B:2C"),
+    # our DB stores lowercase continuous hex ("0a1b2c").
+    presented_serial = x_client_serial.replace(":", "").lower()
+    if presented_serial != current_cert.serial_hex:
+        logger.warning(
+            "auth denied: %s (cn=%s, presented=%s, expected=%s)",
+            DENY_SERIAL_MISMATCH,
+            x_client_cn,
+            presented_serial,
+            current_cert.serial_hex,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=DENY_SERIAL_MISMATCH,
+        )
 
     return agent
 
