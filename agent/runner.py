@@ -211,7 +211,7 @@ def _do_renew(config: AgentConfig, client: ControlPlaneClient) -> None:
 
         resp = client.renew(csr_pem)
         _save_cert_response(config, resp)
-        logger.info("Renewal successful, new serial=%s", resp.get("serial"))
+        logger.info("Renewal successful, new serial_hex=%s", resp.get("serial_hex"))
 
         deploy_to_nginx(config)
 

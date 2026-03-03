@@ -40,8 +40,12 @@ class CertManager:
         self,
         csr_pem: str | bytes,
         validity_days: int = 365,
-    ) -> tuple[bytes, int]:
-        """Sign a PEM CSR and return (cert_pem, serial_number)."""
+    ) -> tuple[bytes, str]:
+        """Sign a PEM CSR and return (cert_pem, serial_hex).
+
+        serial_hex is the certificate serial number as lowercase hex string,
+        safe for storage in VARCHAR (x509 serials can be up to 160 bits).
+        """
         if isinstance(csr_pem, str):
             csr_pem = csr_pem.encode()
 
@@ -91,15 +95,16 @@ class CertManager:
 
         cert = builder.sign(self.ca_key, hashes.SHA256())
         cert_pem = cert.public_bytes(serialization.Encoding.PEM)
-        return cert_pem, serial
+        serial_hex = format(serial, "x")
+        return cert_pem, serial_hex
 
     def issue_for_agent(
         self,
         cn: str,
         validity_days: int = 365,
-    ) -> tuple[bytes, bytes, int]:
+    ) -> tuple[bytes, bytes, str]:
         """Generate key + cert for agent (server-side keygen).
-        Returns (cert_pem, key_pem, serial).
+        Returns (cert_pem, key_pem, serial_hex).
         """
         key = self.generate_private_key()
         key_pem = self.private_key_to_pem(key)
@@ -112,8 +117,8 @@ class CertManager:
         )
         csr_pem = csr.public_bytes(serialization.Encoding.PEM)
 
-        cert_pem, serial = self.sign_csr(csr_pem, validity_days)
-        return cert_pem, key_pem, serial
+        cert_pem, serial_hex = self.sign_csr(csr_pem, validity_days)
+        return cert_pem, key_pem, serial_hex
 
     def ca_cert_pem(self) -> bytes:
         return self.ca_cert.public_bytes(serialization.Encoding.PEM)

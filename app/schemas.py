@@ -56,7 +56,7 @@ class CertSummary(BaseModel):
 
     id: uuid.UUID
     agent_id: uuid.UUID
-    serial: int
+    serial_hex: str
     subject_cn: str
     not_before: datetime
     not_after: datetime
@@ -94,7 +94,7 @@ class AgentRenewRequest(BaseModel):
 class AgentRenewResponse(BaseModel):
     cert_pem: str
     chain_pem: str | None
-    serial: int
+    serial_hex: str
 
 
 class HeartbeatRequest(BaseModel):

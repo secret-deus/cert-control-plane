@@ -55,7 +55,7 @@ def upgrade() -> None:
             sa.ForeignKey("agents.id", ondelete="CASCADE"),
             nullable=False,
         ),
-        sa.Column("serial", sa.BigInteger, unique=True, nullable=False),
+        sa.Column("serial_hex", sa.String(40), unique=True, nullable=False),
         sa.Column("subject_cn", sa.String(255), nullable=False),
         sa.Column("not_before", sa.DateTime(timezone=True), nullable=False),
         sa.Column("not_after", sa.DateTime(timezone=True), nullable=False),

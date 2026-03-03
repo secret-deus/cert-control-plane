@@ -127,7 +127,7 @@ async def register_agent(
         entity_type="agent",
         entity_id=agent.id,
         actor=agent.name,
-        details={"serial": cert.serial},
+        details={"serial_hex": cert.serial_hex},
         ip_address=request.client.host if request.client else None,
     )
     await db.commit()
@@ -249,7 +249,7 @@ async def renew_cert(
         entity_type="certificate",
         entity_id=cert.id,
         actor=agent.name,
-        details={"serial": cert.serial},
+        details={"serial_hex": cert.serial_hex},
         ip_address=request.client.host if request.client else None,
     )
     await db.commit()
@@ -258,7 +258,7 @@ async def renew_cert(
     return AgentRenewResponse(
         cert_pem=cert.cert_pem,
         chain_pem=cert.chain_pem,
-        serial=cert.serial,
+        serial_hex=cert.serial_hex,
     )
 
 

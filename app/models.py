@@ -5,7 +5,6 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    BigInteger,
     Boolean,
     DateTime,
     Enum,
@@ -95,7 +94,7 @@ class Certificate(Base):
     agent_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
     )
-    serial: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
+    serial_hex: Mapped[str] = mapped_column(String(40), unique=True, nullable=False)
     subject_cn: Mapped[str] = mapped_column(String(255), nullable=False)
     not_before: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     not_after: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

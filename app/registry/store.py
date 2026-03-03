@@ -50,13 +50,13 @@ class CertRegistry:
                 f"CSR CN '{csr_cn}' does not match agent name '{agent.name}'"
             )
 
-        cert_pem_bytes, serial = mgr.sign_csr(csr_pem, settings.cert_validity_days)
+        cert_pem_bytes, serial_hex = mgr.sign_csr(csr_pem, settings.cert_validity_days)
         cert_pem = cert_pem_bytes.decode()
         c = _x509.load_pem_x509_certificate(cert_pem_bytes)
 
         cert = Certificate(
             agent_id=agent.id,
-            serial=serial,
+            serial_hex=serial_hex,
             subject_cn=c.subject.get_attributes_for_oid(
                 _x509.oid.NameOID.COMMON_NAME
             )[0].value,
@@ -98,7 +98,7 @@ class CertRegistry:
         settings = get_settings()
         mgr: CertManager = get_cert_manager()
 
-        cert_pem_bytes, key_pem_bytes, serial = mgr.issue_for_agent(
+        cert_pem_bytes, key_pem_bytes, serial_hex = mgr.issue_for_agent(
             agent.name, settings.cert_validity_days
         )
         cert_pem = cert_pem_bytes.decode()
@@ -110,7 +110,7 @@ class CertRegistry:
 
         cert = Certificate(
             agent_id=agent.id,
-            serial=serial,
+            serial_hex=serial_hex,
             subject_cn=c.subject.get_attributes_for_oid(
                 _x509.oid.NameOID.COMMON_NAME
             )[0].value,
