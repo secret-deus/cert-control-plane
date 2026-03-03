@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.core.audit import write_audit
 from app.database import get_db
-from app.models import Agent, AgentStatus, RolloutItem, RolloutItemStatus
+from app.models import Agent, AgentStatus, Certificate, RolloutItem, RolloutItemStatus
 from app.registry.store import registry
 from app.schemas import (
     AgentRegisterRequest,
@@ -34,8 +34,19 @@ router = APIRouter(prefix="/api/agent", tags=["agent"])
 # ---------------------------------------------------------------------------
 
 
-async def _resolve_agent_by_cn(x_client_cn: str | None, db: AsyncSession) -> Agent:
-    """Resolve nginx-injected X-Client-CN to an active Agent row."""
+async def _resolve_agent(
+    x_client_cn: str | None,
+    x_client_serial: str | None,
+    db: AsyncSession,
+) -> Agent:
+    """Resolve nginx-injected identity headers to an active Agent.
+
+    Validates:
+      1. X-Client-CN present (mTLS verified by nginx)
+      2. Agent exists and is ACTIVE
+      3. Current certificate is not revoked
+      4. Client cert serial matches the current certificate's serial_hex
+    """
     if not x_client_cn:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -53,6 +64,32 @@ async def _resolve_agent_by_cn(x_client_cn: str | None, db: AsyncSession) -> Age
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"No active agent for CN '{x_client_cn}'",
         )
+
+    # Verify the presented cert matches the current active, non-revoked cert
+    cert_result = await db.execute(
+        select(Certificate).where(
+            Certificate.agent_id == agent.id,
+            Certificate.is_current.is_(True),
+            Certificate.revoked_at.is_(None),
+        )
+    )
+    current_cert = cert_result.scalar_one_or_none()
+    if not current_cert:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Agent has no valid (non-revoked) current certificate",
+        )
+
+    # Normalize and compare serial: nginx $ssl_client_serial is colon-separated
+    # hex (e.g. "0A:1B:2C"), our DB stores lowercase continuous hex ("0a1b2c")
+    if x_client_serial:
+        presented_serial = x_client_serial.replace(":", "").lower()
+        if presented_serial != current_cert.serial_hex:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Client certificate serial does not match current active certificate",
+            )
+
     return agent
 
 
@@ -168,9 +205,10 @@ async def register_agent(
 )
 async def download_bundle(
     x_client_cn: str | None = Header(None),
+    x_client_serial: str | None = Header(None),
     db: AsyncSession = Depends(get_db),
 ):
-    agent = await _resolve_agent_by_cn(x_client_cn, db)
+    agent = await _resolve_agent(x_client_cn, x_client_serial, db)
     cert = await registry.get_current_cert(db, agent.id)
     if not cert:
         raise HTTPException(status_code=404, detail="No active certificate found")
@@ -221,9 +259,10 @@ async def renew_cert(
     body: AgentRenewRequest,
     request: Request,
     x_client_cn: str | None = Header(None),
+    x_client_serial: str | None = Header(None),
     db: AsyncSession = Depends(get_db),
 ):
-    agent = await _resolve_agent_by_cn(x_client_cn, db)
+    agent = await _resolve_agent(x_client_cn, x_client_serial, db)
     try:
         cert = await registry.issue_from_csr(db, agent=agent, csr_pem=body.csr_pem)
     except ValueError as e:
@@ -288,9 +327,10 @@ Agent 定期调用，更新 `last_seen` 时间戳并查询是否有待执行的�
 async def heartbeat(
     body: HeartbeatRequest,
     x_client_cn: str | None = Header(None),
+    x_client_serial: str | None = Header(None),
     db: AsyncSession = Depends(get_db),
 ):
-    agent = await _resolve_agent_by_cn(x_client_cn, db)
+    agent = await _resolve_agent(x_client_cn, x_client_serial, db)
     agent.last_seen = datetime.now(tz=timezone.utc)
     db.add(agent)
 
