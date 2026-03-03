@@ -547,9 +547,10 @@ async def rollback_rollout_endpoint(
 - `entity_id`：具体资源的 UUID
 
 **覆盖的操作：**
-`agent_created` / `agent_registered` / `agent_deleted` /
-`cert_renewed` / `cert_revoked` / `cert_issued_rollout` / `cert_rolled_back` /
-`rollout_created` / `rollout_started` / `rollout_paused` / `rollout_resumed` /
+`agent_created` / `agent_registered` / `agent_deleted` / `agent_token_reset` /
+`cert_renewed` / `cert_revoked` / `cert_rolled_back` /
+`rollout_created` / `rollout_started` / `rollout_batch_started` /
+`rollout_paused` / `rollout_resumed` /
 `rollout_completed` / `rollout_failed` / `rollout_rolled_back`
     """,
 )
