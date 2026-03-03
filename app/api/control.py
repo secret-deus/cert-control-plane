@@ -160,6 +160,59 @@ async def delete_agent(
     await db.commit()
 
 
+@router.post(
+    "/agents/{agent_id}/reset-token",
+    response_model=AgentDetail,
+    tags=["control / agents"],
+    summary="重置 Bootstrap Token",
+    description="""
+为指定 Agent 生成新的一次性 **bootstrap_token**，用于节点重新注册。
+
+**适用场景：**
+- Agent 证书过期或被吊销后需要重新注册
+- Agent 节点重装系统，本地状态丢失
+- mTLS 认证持续失败，需要重新建立信任
+
+**操作效果：**
+1. 生成新的 bootstrap_token（旧 token 作废）
+2. 将 Agent 状态重置为 `pending`
+3. Agent 使用新 token 重新走注册流程
+
+**注意：** 重置后 Agent 需要重新配置 `CERT_AGENT_BOOTSTRAP_TOKEN` 并重启。
+    """,
+    responses={
+        200: {"description": "Token 重置成功，返回新 token（仅此一次）"},
+        404: {"description": "Agent 不存在"},
+    },
+)
+async def reset_agent_token(
+    agent_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    agent = await db.get(Agent, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    new_token = generate_bootstrap_token()
+    agent.bootstrap_token = new_token
+    agent.bootstrap_token_created_at = datetime.now(tz=timezone.utc)
+    agent.status = AgentStatus.PENDING
+    db.add(agent)
+
+    await write_audit(
+        db,
+        action="agent_token_reset",
+        entity_type="agent",
+        entity_id=agent_id,
+        actor=_actor(request),
+        ip_address=_ip(request),
+    )
+    await db.commit()
+    await db.refresh(agent)
+    return agent
+
+
 # ===========================================================================
 # Certificates
 # ===========================================================================
