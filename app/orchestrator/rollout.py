@@ -165,20 +165,58 @@ async def _advance_rollout(db: AsyncSession, rollout: Rollout) -> None:
             # Still waiting for agents to finish renewal
             return
 
+        # Fail-fast: if any item in the batch failed, stop the rollout
+        batch_failed = await _count_failed_items(db, rollout.id)
+        if batch_failed > 0:
+            rollout.status = RolloutStatus.FAILED
+            db.add(rollout)
+            await write_audit(
+                db,
+                action="rollout_failed",
+                entity_type="rollout",
+                entity_id=rollout.id,
+                actor="orchestrator",
+                details={
+                    "reason": "batch_failure",
+                    "failed_items": batch_failed,
+                    "stopped_at_batch": current_batch,
+                },
+            )
+            logger.warning(
+                "Rollout %s: FAILED — %d items failed in batch %d",
+                rollout.name,
+                batch_failed,
+                current_batch,
+            )
+            return
+
     # ----- Step 3: Advance to next batch -----
     next_batch = current_batch + 1
 
     if next_batch > rollout.total_batches:
-        # All batches done
-        rollout.status = RolloutStatus.COMPLETED
-        db.add(rollout)
-        await write_audit(
-            db,
-            action="rollout_completed",
-            entity_type="rollout",
-            entity_id=rollout.id,
-            actor="orchestrator",
-        )
+        # All batches processed — check if any items failed
+        failed_count = await _count_failed_items(db, rollout.id)
+        if failed_count > 0:
+            rollout.status = RolloutStatus.FAILED
+            db.add(rollout)
+            await write_audit(
+                db,
+                action="rollout_failed",
+                entity_type="rollout",
+                entity_id=rollout.id,
+                actor="orchestrator",
+                details={"failed_items": failed_count},
+            )
+        else:
+            rollout.status = RolloutStatus.COMPLETED
+            db.add(rollout)
+            await write_audit(
+                db,
+                action="rollout_completed",
+                entity_type="rollout",
+                entity_id=rollout.id,
+                actor="orchestrator",
+            )
         return
 
     # Fetch PENDING items for the next batch
@@ -231,6 +269,20 @@ async def _advance_rollout(db: AsyncSession, rollout: Rollout) -> None:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+async def _count_failed_items(
+    db: AsyncSession,
+    rollout_id: uuid.UUID,
+) -> int:
+    """Count FAILED items across all batches of a rollout."""
+    result = await db.execute(
+        select(func.count()).where(
+            RolloutItem.rollout_id == rollout_id,
+            RolloutItem.status == RolloutItemStatus.FAILED,
+        )
+    )
+    return result.scalar_one()
 
 
 async def _timeout_stale_items(
