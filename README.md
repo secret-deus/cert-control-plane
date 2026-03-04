@@ -306,10 +306,18 @@ cert-control-plane/
 │   ├── agent.env.example       # 环境变量模板
 │   └── scripts/
 │       └── install.sh          # 安装脚本
+├── tests/                      # 回归测试 (31 tests, 无需数据库)
+│   ├── conftest.py             # 测试 fixtures
+│   ├── test_agent_auth.py      # Agent 认证 fail-closed 测试
+│   ├── test_serial_hex.py      # 证书序列号格式测试
+│   ├── test_audit_actions.py   # 审计动作文档对齐测试
+│   ├── test_migration.py       # 迁移文件结构测试
+│   └── test_installer.py       # 安装脚本路径测试
 ├── alembic/                    # 数据库迁移
 │   ├── env.py
 │   └── versions/
-│       └── 001_initial.py
+│       ├── 001_initial.py      # 初始 schema (serial_hex)
+│       └── 002_serial_hex_compat.py  # 旧版 DB 兼容迁移
 ├── nginx/
 │   └── nginx.conf              # 双端口 mTLS 配置
 ├── scripts/
@@ -326,7 +334,7 @@ cert-control-plane/
 - **私钥不出节点**: CSR 模式下，Agent 在本地生成 RSA 私钥，只提交 CSR 给控制面板
 - **mTLS 双向认证**: Agent API 端口 (8443) 强制验证客户端证书
 - **端口隔离**: 443 端口无法访问 Agent 端点，防止运维侧绕过 mTLS 下载 bundle
-- **证书序列号绑定**: Agent 认证不仅检查 CN，还校验证书序列号与 DB 中的当前证书匹配
+- **证书序列号绑定 (fail-closed)**: Agent 认证同时校验 `X-Client-CN` 和 `X-Client-Serial`，两者缺一不可；序列号必须与 DB 中当前证书匹配
 - **运行时吊销**: 吊销后的证书立即被拒绝，不仅是 DB 标记
 - **Header 防伪**: 443 端口主动清除 `X-Client-CN` / `X-Client-Serial` / `X-Client-Verified` 头
 - **Bootstrap Token**: 一次性使用，注册后立即作废；支持过期时间（默认 24 小时）
@@ -349,6 +357,30 @@ cert-control-plane/
 | `ROLLOUT_INTERVAL_SECONDS` | 否 | `30` | 编排器轮询间隔 |
 | `ROLLOUT_ITEM_TIMEOUT_MINUTES` | 否 | `10` | Rollout item 超时时间 |
 
+## 数据库迁移
+
+```bash
+# 全新部署
+alembic upgrade head
+
+# 从旧版 (serial BIGINT) 升级
+# 002 迁移会自动检测 schema 状态：
+#   - 已有 serial_hex → no-op
+#   - 仅有 serial BIGINT → 添加 serial_hex + 回填 + 约束
+alembic upgrade head
+```
+
+旧版数据库升级后验证：
+
+```sql
+-- 确认无空值
+SELECT COUNT(*) FROM certificates WHERE serial_hex IS NULL;  -- 应返回 0
+
+-- 确认无重复
+SELECT serial_hex, COUNT(*) FROM certificates
+GROUP BY serial_hex HAVING COUNT(*) > 1;  -- 应返回空
+```
+
 ## 开发
 
 ```bash
@@ -363,4 +395,7 @@ alembic upgrade head
 
 # 启动开发服务器
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# 运行测试 (无需数据库)
+pytest tests/ -v
 ```
