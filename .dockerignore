@@ -1,0 +1,41 @@
+# Dependencies & build artifacts
+node_modules/
+frontend/node_modules/
+frontend/dist/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Version control
+.git/
+.github/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+certs/
+
+# Documentation (not needed in image)
+docs/
+*.md
+!README.md
+
+# Tests (not needed in production image)
+tests/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temp
+*.db
+certcp.db

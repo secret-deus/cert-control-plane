@@ -1,16 +1,19 @@
 import { useState, useEffect } from 'react';
-import { ShieldCheck } from 'lucide-react';
-import Dashboard from './components/Dashboard';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import AuthScreen from './components/AuthScreen';
+import Layout from './components/Layout';
+import Dashboard from './components/Dashboard';
+import AgentsPage from './components/AgentsPage';
+import CertificatesPage from './components/CertificatesPage';
+import RolloutsPage from './components/RolloutsPage';
+import AuditLogsPage from './components/AuditLogsPage';
 
 function App() {
   const [apiKey, setApiKey] = useState<string | null>(null);
 
   useEffect(() => {
     const storedKey = sessionStorage.getItem('admin_api_key');
-    if (storedKey) {
-      setApiKey(storedKey);
-    }
+    if (storedKey) setApiKey(storedKey);
   }, []);
 
   const handleLogin = (key: string) => {
@@ -23,43 +26,26 @@ function App() {
     setApiKey(null);
   };
 
-  // Main UI Wrapper Layout
-  return (
-    <div className="min-h-screen bg-[var(--color-background-base)] text-[var(--color-text-primary)]">
-      {/* Top Navigation Bar */}
-      <nav className="glass-panel rounded-none border-x-0 border-t-0 p-4 sticky top-0 z-50 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <ShieldCheck className="text-[var(--color-accent-blue)]" size={28} />
-          <h1 className="text-xl font-semibold tracking-tight">Cert Control Plane <span className="text-[var(--color-text-secondary)] font-normal text-sm ml-2">v0.1.0</span></h1>
-        </div>
-        
-        {apiKey && (
-          <div className="flex items-center gap-6">
-             <div className="flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
-                <span className="relative flex h-3 w-3">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--color-status-green)] opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-[var(--color-status-green)]"></span>
-                </span>
-                System Online
-             </div>
-             <button 
-                onClick={handleLogout}
-                className="text-sm text-[var(--color-text-secondary)] hover:text-white transition-colors"
-             >
-                Sign Out
-             </button>
-          </div>
-        )}
-      </nav>
+  if (!apiKey) {
+    return (
+      <div className="min-h-screen bg-[var(--color-background-base)] text-[var(--color-text-primary)] flex items-center justify-center">
+        <AuthScreen onLogin={handleLogin} />
+      </div>
+    );
+  }
 
-      <main className="container mx-auto p-4 md:p-8 max-w-7xl">
-        {!apiKey ? (
-          <AuthScreen onLogin={handleLogin} />
-        ) : (
-          <Dashboard apiKey={apiKey} onAuthError={handleLogout} />
-        )}
-      </main>
-    </div>
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route element={<Layout onLogout={handleLogout} />}>
+          <Route index element={<Dashboard apiKey={apiKey} onAuthError={handleLogout} />} />
+          <Route path="agents" element={<AgentsPage />} />
+          <Route path="certificates" element={<CertificatesPage />} />
+          <Route path="rollouts" element={<RolloutsPage />} />
+          <Route path="audit" element={<AuditLogsPage />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
   );
 }
 

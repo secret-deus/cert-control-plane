@@ -72,7 +72,7 @@ class ControlPlaneClient:
     # ------------------------------------------------------------------
 
     def renew(self, csr_pem: str) -> dict:
-        """Submit a new CSR for cert renewal. Returns {cert_pem, chain_pem, serial}."""
+        """Submit a new CSR for cert renewal. Returns {cert_pem, chain_pem, serial_hex}."""
         url = f"{self._base}/api/agent/renew"
         with self._make_client() as client:
             resp = client.post(url, json={"csr_pem": csr_pem})

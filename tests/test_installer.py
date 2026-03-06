@@ -32,9 +32,9 @@ class TestInstallerPaths:
         assert '$PROJECT_DIR/cert-agent.service' in text
 
     def test_references_correct_env_example(self):
-        """Env example should be $PROJECT_DIR/agent.env.example."""
+        """Env config should be generated to $CONFIG_DIR/agent.env."""
         text = INSTALL_SCRIPT.read_text(encoding="utf-8")
-        assert '$PROJECT_DIR/agent.env.example' in text
+        assert '$CONFIG_DIR/agent.env' in text
 
     def test_copies_py_files_correctly(self):
         """Script should copy *.py from PROJECT_DIR, not from nested dir."""

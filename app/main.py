@@ -125,7 +125,7 @@ def create_app() -> FastAPI:
     from fastapi.middleware.cors import CORSMiddleware
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # For dev UI running on another port (e.g. Vite 5173)
+        allow_origins=get_settings().cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -139,16 +139,24 @@ def create_app() -> FastAPI:
     
     # Mount static files *if* they exist (production mode)
     if os.path.isdir(static_dir):
-        app.mount("/assets", StaticFiles(directory=os.path.join(static_dir, "assets")), name="assets")
-        
-        @app.get("/", response_class=HTMLResponse, include_in_schema=False)
-        @app.get("/dashboard", response_class=HTMLResponse, include_in_schema=False)
-        async def serve_dashboard():
-            index_path = os.path.join(static_dir, "index.html")
-            if os.path.exists(index_path):
-                with open(index_path, "r", encoding="utf-8") as f:
-                    return f.read()
-            return "Dashboard build not found. Run 'npm run build' in frontend/ first."
+        assets_dir = os.path.join(static_dir, "assets")
+        if os.path.isdir(assets_dir):
+            app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+    # SPA catch-all: serve index.html for all non-API routes
+    @app.get("/{path:path}", response_class=HTMLResponse, include_in_schema=False)
+    async def spa_fallback(path: str):
+        # Don't intercept API/docs routes
+        if path.startswith(("api/", "docs", "redoc", "openapi.json", "healthz")):
+            return HTMLResponse(status_code=404, content="Not Found")
+        index_path = os.path.join(static_dir, "index.html") if os.path.isdir(static_dir) else ""
+        if os.path.exists(index_path):
+            with open(index_path, "r", encoding="utf-8") as f:
+                return f.read()
+        return HTMLResponse(
+            content="Dashboard not built. Run 'npm run build' in frontend/ or use 'npm run dev' for development.",
+            status_code=200,
+        )
 
     @app.get("/healthz", tags=["health"], summary="健康检查")
     async def healthz():
