@@ -16,11 +16,10 @@ if config.config_file_name:
 target_metadata = Base.metadata
 
 
+from app.config import get_settings
+
 def get_url() -> str:
-    return os.environ.get(
-        "DATABASE_URL",
-        "postgresql+asyncpg://postgres:postgres@localhost:5432/certcp",
-    )
+    return str(get_settings().database_url)
 
 
 def run_migrations_offline() -> None:

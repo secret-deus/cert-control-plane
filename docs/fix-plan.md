@@ -614,3 +614,23 @@ All tasks in Section 11 have been implemented and committed.
 ### 12.4 Remediation Plan Status
 
 **CLOSED** — All P0/P1/P2 fixes and G1-G4 gaps have been addressed. The project is ready for staging validation and production deployment per the Release Checklist in Section 7.
+
+## 13. Post-Closure Follow-ups (2026-03-04)
+
+A subsequent review found no new blocking issues. Two low-priority documentation/config hygiene items remain:
+
+| Follow-up ID | Priority | Item | File | Status |
+|---|---|---|---|---|
+| `FOLLOWUP-001` | Low | Agent client renew docstring still says `serial` instead of `serial_hex` | `agent/client.py` | Open |
+| `FOLLOWUP-002` | Low | `pytest-asyncio` loop scope warning should be pinned explicitly in pytest config | `pyproject.toml` | Open |
+
+### 13.1 Recommended Quick Fixes
+
+1. Update renew docstring in `agent/client.py` to: `Returns {cert_pem, chain_pem, serial_hex}`.
+2. Add in `pyproject.toml`:
+   - `asyncio_default_fixture_loop_scope = "function"` (or team-preferred scope).
+
+### 13.2 Impact Assessment
+
+1. These do **not** affect runtime certificate security or migration correctness.
+2. These do improve operator clarity and reduce future pytest behavior drift risk.

@@ -53,20 +53,32 @@ TLS 证书生命周期管理系统 —— 控制面板 + nginx 节点 Agent。
 
 ## 快速开始
 
-### 1. 生成 CA 和服务端证书
+### ⚡ 一键启动（推荐）
+
+**Windows (PowerShell)：**
+```powershell
+.\startup.ps1
+```
+
+**Linux / macOS：**
+```bash
+bash start.sh
+```
+
+脚本会自动完成：检查依赖 → 生成 `.env` 密钥 → 创建 CA 证书 → 启动后端 + 前端。启动后终端会显示 `ADMIN_API_KEY`，打开前端页面输入即可。
+
+---
+
+### 手动启动
+
+#### 1. 生成 CA 和服务端证书
 
 ```bash
 pip install cryptography
 python scripts/init_ca.py --out-dir ./certs
 ```
 
-生成文件：
-- `certs/ca.key` — CA 私钥（妥善保管）
-- `certs/ca.crt` — CA 证书（分发给所有 Agent 节点）
-- `certs/server.key` — 服务端 TLS 私钥
-- `certs/server.crt` — 服务端 TLS 证书
-
-### 2. 配置环境变量
+#### 2. 配置环境变量
 
 ```bash
 cp .env.example .env
@@ -82,10 +94,14 @@ CA_KEY_ENCRYPTION_KEY=$(python -c "from cryptography.fernet import Fernet; print
 ADMIN_API_KEY=$(python -c "import secrets; print(secrets.token_hex(32))")
 ```
 
-### 3. 启动服务
+#### 3. 启动服务
 
 ```bash
+# Docker 方式
 docker-compose up -d
+
+# 或本地开发方式 (SQLite)
+uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
 服务启动后：
@@ -93,6 +109,21 @@ docker-compose up -d
 - API 文档：`https://localhost:443/docs`
 - 健康检查：`https://localhost:443/healthz`
 - Agent API：`https://localhost:8443`（需 mTLS）
+
+### 5. 访问 Web 仪表盘 (Dashboard)
+
+本项目原生提供基于 React 的可视化仪表盘。
+
+1. 进入前端目录并构建静态资源：
+   ```bash
+   cd frontend
+   npm install
+   npm run build
+   ```
+   > FastAPI 会自动服务 `frontend/dist` 目录。
+2. 在浏览器中打开 `https://localhost:443/dashboard`
+3. 弹窗提示输入 `API Key`，请填入 `.env` 中的 `ADMIN_API_KEY` 以解锁面板。
+4. 面板每 30 秒自动刷新，展示 Agent 状态、证书过期警告与操作审计。
 
 ### 4. 部署 Agent 到 nginx 节点
 
@@ -211,12 +242,29 @@ docker-compose up -d
 
 Agent 是一个独立的 Python 进程，运行在每个 nginx 节点上。
 
-### 安装
+### ⚡ 一键安装（推荐）
 
+**Linux (在 nginx 节点上)：**
 ```bash
-# 在 nginx 节点上
+# 交互式安装 — 脚本会提示输入控制面板地址、Agent 名称和 Token
 sudo bash agent/scripts/install.sh
+
+# 或非交互式
+sudo bash agent/scripts/install.sh \
+  --cp-url https://cp.example.com:8443 \
+  --name web-node-01 \
+  --token <bootstrap_token>
 ```
+
+**Windows (管理员 PowerShell)：**
+```powershell
+.\agent\scripts\install.ps1
+
+# 或非交互式
+.\agent\scripts\install.ps1 -CpUrl "https://cp.example.com:8443" -AgentName "web-node-01" -Token "<token>"
+```
+
+脚本会自动：检查依赖 → 安装代码 → 安装 Python 包 → 生成配置 → 复制 CA 证书 → 注册系统服务。
 
 ### 手动安装
 
@@ -277,6 +325,8 @@ journalctl -u cert-agent -f   # 实时日志
 
 ```
 cert-control-plane/
+├── startup.ps1                 # ⚡ 一键启动 (Windows)
+├── start.sh                    # ⚡ 一键启动 (Linux/macOS)
 ├── app/                        # 控制面板后端
 │   ├── main.py                 # FastAPI 入口 + lifespan
 │   ├── config.py               # 环境变量配置 (pydantic-settings)
@@ -285,7 +335,8 @@ cert-control-plane/
 │   ├── schemas.py              # Pydantic 请求/响应 schema
 │   ├── api/
 │   │   ├── agent.py            # Agent API (register/bundle/renew/heartbeat)
-│   │   └── control.py          # Control API (agents/certs/rollouts/audit)
+│   │   ├── control.py          # Control API (agents/certs/rollouts/audit)
+│   │   └── dashboard.py        # Dashboard API (summary/agents-health/certs-expiry/events)
 │   ├── core/
 │   │   ├── crypto.py           # CA 加载、CSR 签发、Fernet 加解密
 │   │   ├── security.py         # Admin API Key 校验、bootstrap token 生成
@@ -294,6 +345,15 @@ cert-control-plane/
 │   │   └── store.py            # 证书 CRUD (issue_from_csr/revoke/build_bundle)
 │   └── orchestrator/
 │       └── rollout.py          # Rollout 编排 (批次推进/暂停/恢复/回滚)
+├── frontend/                   # React Web Dashboard (Vite + TailwindCSS)
+│   ├── src/
+│   │   ├── App.tsx             # 主应用 (认证状态管理)
+│   │   ├── index.css           # 深色玻璃拟物风格主题
+│   │   └── components/
+│   │       ├── AuthScreen.tsx   # API Key 登录界面
+│   │       └── Dashboard.tsx    # 仪表盘主面板
+│   ├── vite.config.ts          # Vite 配置 (含 API 代理)
+│   └── package.json
 ├── agent/                      # nginx 节点 Agent (独立部署)
 │   ├── __main__.py             # 入口 (python -m agent)
 │   ├── config.py               # Agent 配置 (环境变量)
@@ -301,22 +361,23 @@ cert-control-plane/
 │   ├── client.py               # httpx mTLS 客户端
 │   ├── runner.py               # 主循环 (注册/心跳/续期/容错)
 │   ├── deployer.py             # 证书部署到 nginx + reload
-│   ├── pyproject.toml          # Agent 独立包定义
 │   ├── cert-agent.service      # systemd 服务文件
 │   ├── agent.env.example       # 环境变量模板
 │   └── scripts/
-│       └── install.sh          # 安装脚本
-├── tests/                      # 回归测试 (31 tests, 无需数据库)
+│       ├── install.sh          # ⚡ Agent 一键安装 (Linux)
+│       └── install.ps1         # ⚡ Agent 一键安装 (Windows)
+├── tests/                      # 回归测试 (无需数据库)
 │   ├── conftest.py             # 测试 fixtures
-│   ├── test_agent_auth.py      # Agent 认证 fail-closed 测试
-│   ├── test_serial_hex.py      # 证书序列号格式测试
-│   ├── test_audit_actions.py   # 审计动作文档对齐测试
-│   ├── test_migration.py       # 迁移文件结构测试
-│   └── test_installer.py       # 安装脚本路径测试
+│   ├── test_agent_auth.py      # Agent 认证测试
+│   ├── test_dashboard.py       # Dashboard API 测试
+│   ├── test_serial_hex.py      # 证书序列号测试
+│   ├── test_audit_actions.py   # 审计动作测试
+│   ├── test_migration.py       # 迁移文件测试
+│   └── test_installer.py       # 安装脚本测试
 ├── alembic/                    # 数据库迁移
 │   ├── env.py
 │   └── versions/
-│       ├── 001_initial.py      # 初始 schema (serial_hex)
+│       ├── 001_initial.py      # 初始 schema
 │       └── 002_serial_hex_compat.py  # 旧版 DB 兼容迁移
 ├── nginx/
 │   └── nginx.conf              # 双端口 mTLS 配置
@@ -399,3 +460,17 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 # 运行测试 (无需数据库)
 pytest tests/ -v
 ```
+
+### 前端开发 (Web Dashboard)
+
+前端位于 `frontend/` 目录，采用了 React + Vite + TailwindCSS 架构。
+
+```bash
+cd frontend
+npm install
+
+# 启动带热重载的开发服务器 (默认 http://localhost:5173)
+npm run dev
+```
+
+开发服务器会自动通过代理将 `/api/` 请求转发给运行在 `443` 端口的本地 FastAPI 实例（需确保证书忽略等设置妥当，见 `vite.config.ts`）。

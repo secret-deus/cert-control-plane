@@ -9,10 +9,12 @@ from fastapi import FastAPI
 
 from app.api.agent import router as agent_router
 from app.api.control import router as control_router
+from app.api.dashboard import router as dashboard_router
 from app.config import get_settings
 from app.core.crypto import get_cert_manager, load_ca
-from app.database import check_db
+from app.database import check_db, create_tables
 from app.orchestrator.rollout import advance_all_rollouts
+import app.models  # noqa: F401  ensure models registered with Base
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +24,11 @@ _scheduler: AsyncIOScheduler | None = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+
+    # Auto-create tables for SQLite dev mode (production uses Alembic)
+    if str(settings.database_url).startswith("sqlite"):
+        await create_tables()
+        logger.info("SQLite dev mode: tables auto-created")
 
     ca_exists = os.path.exists(settings.ca_cert_path) and os.path.exists(settings.ca_key_path)
     if ca_exists:
@@ -111,8 +118,37 @@ def create_app() -> FastAPI:
         ],
     )
 
+    app.include_router(dashboard_router)
     app.include_router(agent_router)
     app.include_router(control_router)
+
+    from fastapi.middleware.cors import CORSMiddleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # For dev UI running on another port (e.g. Vite 5173)
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    import os
+    from fastapi.staticfiles import StaticFiles
+    from fastapi.responses import HTMLResponse
+
+    static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
+    
+    # Mount static files *if* they exist (production mode)
+    if os.path.isdir(static_dir):
+        app.mount("/assets", StaticFiles(directory=os.path.join(static_dir, "assets")), name="assets")
+        
+        @app.get("/", response_class=HTMLResponse, include_in_schema=False)
+        @app.get("/dashboard", response_class=HTMLResponse, include_in_schema=False)
+        async def serve_dashboard():
+            index_path = os.path.join(static_dir, "index.html")
+            if os.path.exists(index_path):
+                with open(index_path, "r", encoding="utf-8") as f:
+                    return f.read()
+            return "Dashboard build not found. Run 'npm run build' in frontend/ first."
 
     @app.get("/healthz", tags=["health"], summary="健康检查")
     async def healthz():

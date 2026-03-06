@@ -29,14 +29,26 @@ def _get_engine() -> AsyncEngine:
     global _engine
     if _engine is None:
         settings = get_settings()
-        _engine = create_async_engine(
-            settings.database_url,
-            pool_pre_ping=True,
-            pool_size=5,
-            max_overflow=10,
-            echo=False,
-        )
+        url = str(settings.database_url)
+        # SQLite doesn't support pool_size / pool_pre_ping
+        if url.startswith("sqlite"):
+            _engine = create_async_engine(url, echo=False)
+        else:
+            _engine = create_async_engine(
+                url,
+                pool_pre_ping=True,
+                pool_size=5,
+                max_overflow=10,
+                echo=False,
+            )
     return _engine
+
+
+async def create_tables() -> None:
+    """Create all tables (used for SQLite dev mode, skipping Alembic)."""
+    engine = _get_engine()
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
 
 def _get_session_factory() -> async_sessionmaker[AsyncSession]:
