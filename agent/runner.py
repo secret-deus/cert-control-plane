@@ -140,6 +140,7 @@ def _handle_auth_failure(config: AgentConfig, client: ControlPlaneClient) -> Non
             # Clear local state to trigger fresh registration
             config.agent_id_path.unlink(missing_ok=True)
             config.cert_path.unlink(missing_ok=True)
+            config.key_path.unlink(missing_ok=True)
             _do_register(config, client)
             logger.info("Re-registration succeeded")
         except Exception:

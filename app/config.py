@@ -16,8 +16,8 @@ class Settings(BaseSettings):
     # Admin API key – no default; must be configured
     admin_api_key: str = ""
 
-    # CORS allowed origins (default: ["*"] for dev; restrict in production)
-    cors_origins: list[str] = ["*"]
+    # CORS allowed origins (default: [] — must be explicitly configured)
+    cors_origins: list[str] = []
 
     # CA paths
     ca_cert_path: str = "/certs/ca.crt"

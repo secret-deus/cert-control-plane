@@ -1,6 +1,7 @@
 """Deploy certificates to nginx and reload."""
 
 import logging
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -53,7 +54,7 @@ def _reload_nginx(cmd: str) -> None:
     logger.info("Reloading nginx: %s", cmd)
     try:
         result = subprocess.run(
-            cmd.split(),
+            shlex.split(cmd),
             capture_output=True,
             text=True,
             timeout=15,
