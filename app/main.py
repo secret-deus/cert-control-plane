@@ -132,7 +132,6 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    import os
     from fastapi.staticfiles import StaticFiles
     from fastapi.responses import HTMLResponse
 

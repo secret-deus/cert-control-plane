@@ -68,24 +68,7 @@ class CertRegistry:
             is_current=True,
         )
         db.add(cert)
-
-        # Mark old certs as superseded
-        await db.execute(
-            update(Certificate)
-            .where(
-                Certificate.agent_id == agent.id,
-                Certificate.id != cert.id,
-                Certificate.is_current.is_(True),
-            )
-            .values(is_current=False)
-        )
-
-        # Update agent fingerprint and status
-        agent.fingerprint = CertManager.fingerprint(cert_pem_bytes)
-        agent.status = AgentStatus.ACTIVE
-        db.add(agent)
-
-        await db.flush()
+        await self._finalize_issuance(db, agent, cert_pem_bytes, cert)
         return cert
 
     async def issue_server_side(
@@ -122,7 +105,21 @@ class CertRegistry:
             is_current=True,
         )
         db.add(cert)
+        await self._finalize_issuance(db, agent, cert_pem_bytes, cert)
+        return cert
 
+    # ------------------------------------------------------------------
+    # Shared finalization
+    # ------------------------------------------------------------------
+
+    async def _finalize_issuance(
+        self,
+        db: AsyncSession,
+        agent: Agent,
+        cert_pem_bytes: bytes,
+        cert: Certificate,
+    ) -> None:
+        """Mark old certs as superseded and update agent fingerprint/status."""
         await db.execute(
             update(Certificate)
             .where(
@@ -132,13 +129,10 @@ class CertRegistry:
             )
             .values(is_current=False)
         )
-
         agent.fingerprint = CertManager.fingerprint(cert_pem_bytes)
         agent.status = AgentStatus.ACTIVE
         db.add(agent)
-
         await db.flush()
-        return cert
 
     # ------------------------------------------------------------------
     # Read

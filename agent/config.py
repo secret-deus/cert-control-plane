@@ -13,7 +13,7 @@ DEFAULT_NGINX_CERT_DIR = Path("/etc/nginx/certs")
 class AgentConfig:
     # Control plane connection
     control_plane_url: str = ""          # e.g. https://cp.example.com:8443
-    ca_cert_path: str = ""               # CA cert to verify server TLS
+    ca_cert_path: Path = Path()           # CA cert to verify server TLS
 
     # Bootstrap (first-run only)
     bootstrap_token: str = ""
@@ -71,7 +71,7 @@ class AgentConfig:
     def from_env(cls) -> "AgentConfig":
         return cls(
             control_plane_url=os.environ.get("CERT_AGENT_CP_URL", ""),
-            ca_cert_path=os.environ.get("CERT_AGENT_CA_CERT", ""),
+            ca_cert_path=Path(os.environ.get("CERT_AGENT_CA_CERT", "")),
             bootstrap_token=os.environ.get("CERT_AGENT_BOOTSTRAP_TOKEN", ""),
             agent_name=os.environ.get("CERT_AGENT_NAME", ""),
             state_dir=Path(os.environ.get("CERT_AGENT_STATE_DIR", str(DEFAULT_STATE_DIR))),
@@ -88,7 +88,7 @@ class AgentConfig:
             errors.append("CERT_AGENT_CP_URL is required")
         if not self.agent_name:
             errors.append("CERT_AGENT_NAME is required")
-        if not self.ca_cert_path:
+        if not str(self.ca_cert_path):
             errors.append("CERT_AGENT_CA_CERT is required (path to CA cert for TLS verification)")
         if not self.is_registered() and not self.bootstrap_token:
             errors.append("CERT_AGENT_BOOTSTRAP_TOKEN is required for first-run registration")
