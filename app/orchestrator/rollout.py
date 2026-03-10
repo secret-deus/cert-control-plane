@@ -385,16 +385,20 @@ async def rollback_rollout(
     ):
         raise ValueError(f"Cannot rollback rollout in status '{rollout.status}'")
 
+    # Rollback COMPLETED items (restore previous cert) and IN_PROGRESS items (just mark)
     result = await db.execute(
         select(RolloutItem).where(
             RolloutItem.rollout_id == rollout.id,
-            RolloutItem.status == RolloutItemStatus.COMPLETED,
+            RolloutItem.status.in_((
+                RolloutItemStatus.COMPLETED,
+                RolloutItemStatus.IN_PROGRESS,
+            )),
         )
     )
     items = list(result.scalars().all())
 
     for item in items:
-        if item.previous_cert_id:
+        if item.status == RolloutItemStatus.COMPLETED and item.previous_cert_id:
             # Restore previous cert as current
             await db.execute(
                 update(Certificate)

@@ -12,7 +12,7 @@ from app.api.control import router as control_router
 from app.api.dashboard import router as dashboard_router
 from app.config import get_settings
 from app.core.crypto import get_cert_manager, load_ca
-from app.database import check_db, create_tables
+from app.database import check_db, create_tables, dispose_engine
 from app.orchestrator.rollout import advance_all_rollouts
 import app.models  # noqa: F401  ensure models registered with Base
 
@@ -63,6 +63,7 @@ async def lifespan(app: FastAPI):
 
     if _scheduler and _scheduler.running:
         _scheduler.shutdown(wait=False)
+    await dispose_engine()
 
 
 def create_app() -> FastAPI:

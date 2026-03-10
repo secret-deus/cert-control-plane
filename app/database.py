@@ -71,6 +71,15 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         yield session
 
 
+async def dispose_engine() -> None:
+    """Dispose the async engine, closing all pooled connections."""
+    global _engine, _session_factory
+    if _engine is not None:
+        await _engine.dispose()
+        _engine = None
+        _session_factory = None
+
+
 async def check_db() -> bool:
     """Quick connectivity check – used by healthz."""
     try:

@@ -77,7 +77,7 @@ class CertRead(CertSummary):
 
 
 class AgentRegisterRequest(BaseModel):
-    bootstrap_token: str
+    bootstrap_token: str = Field(..., min_length=1)
     csr_pem: str  # PEM-encoded CSR (agent generated the private key)
 
 
