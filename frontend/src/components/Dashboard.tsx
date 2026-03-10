@@ -1,14 +1,10 @@
 import { useState, useEffect } from 'react';
-import { 
+import {
   Users, Activity, ShieldAlert, History,
   CheckCircle2, AlertTriangle
 } from 'lucide-react';
 import { formatDistanceToNow, format } from 'date-fns';
-
-interface DashboardProps {
-  apiKey: string;
-  onAuthError: () => void;
-}
+import { getApiKey } from '../lib/api';
 
 // Types for our API responses
 interface Stats {
@@ -41,7 +37,7 @@ interface AuditEvent {
   created_at: string;
 }
 
-export default function Dashboard({ apiKey, onAuthError }: DashboardProps) {
+export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [agents, setAgents] = useState<AgentHealth[]>([]);
   const [expirations, setExpirations] = useState<CertExpiry[]>([]);
@@ -51,8 +47,14 @@ export default function Dashboard({ apiKey, onAuthError }: DashboardProps) {
 
   const fetchData = async () => {
     try {
+      const apiKey = getApiKey();
+      if (!apiKey) {
+        sessionStorage.removeItem('admin_api_key');
+        window.location.reload();
+        return;
+      }
       const headers = { 'X-Admin-API-Key': apiKey };
-      
+
       const [statsRes, agentsRes, expRes, evRes] = await Promise.all([
         fetch('/api/control/dashboard/summary', { headers }),
         fetch('/api/control/dashboard/agents-health', { headers }),
@@ -61,7 +63,8 @@ export default function Dashboard({ apiKey, onAuthError }: DashboardProps) {
       ]);
 
       if (statsRes.status === 401 || statsRes.status === 403) {
-        onAuthError();
+        sessionStorage.removeItem('admin_api_key');
+        window.location.reload();
         return;
       }
 
@@ -81,7 +84,7 @@ export default function Dashboard({ apiKey, onAuthError }: DashboardProps) {
     fetchData();
     const interval = setInterval(fetchData, 30000); // 30s auto-refresh
     return () => clearInterval(interval);
-  }, [apiKey]);
+  }, []);
 
   if (isLoading && !stats) {
     return (

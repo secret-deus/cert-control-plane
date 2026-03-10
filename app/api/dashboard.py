@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import verify_admin_key
 from app.database import get_db
 from app.models import Agent, AgentStatus, AuditLog, Certificate, Rollout, RolloutStatus
+from app.schemas import AgentHealth, AuditEvent, CertExpiry, DashboardSummary
 
 router = APIRouter(
     prefix="/api/control/dashboard",
@@ -17,7 +18,7 @@ router = APIRouter(
 )
 
 
-@router.get("/summary", summary="Dashboard global summary stats")
+@router.get("/summary", summary="Dashboard global summary stats", response_model=DashboardSummary)
 async def get_summary(db: AsyncSession = Depends(get_db)):
     """Aggregate stats for the top cards on the dashboard."""
     # Agent stats
@@ -68,7 +69,7 @@ async def get_summary(db: AsyncSession = Depends(get_db)):
     }
 
 
-@router.get("/agents-health", summary="Agent liveness list")
+@router.get("/agents-health", summary="Agent liveness list", response_model=list[AgentHealth])
 async def get_agents_health(db: AsyncSession = Depends(get_db)):
     """List of all agents with their last_seen and current cert info for the health table."""
     result = await db.execute(
@@ -106,7 +107,7 @@ async def get_agents_health(db: AsyncSession = Depends(get_db)):
     return health_list
 
 
-@router.get("/certs-expiry", summary="Upcoming certificate expirations")
+@router.get("/certs-expiry", summary="Upcoming certificate expirations", response_model=list[CertExpiry])
 async def get_certs_expiry(db: AsyncSession = Depends(get_db)):
     """List of certificates expiring within the next 30 days, sorted by nearest first."""
     soon = datetime.now(tz=timezone.utc) + timedelta(days=30)
@@ -133,7 +134,7 @@ async def get_certs_expiry(db: AsyncSession = Depends(get_db)):
     ]
 
 
-@router.get("/events", summary="Recent audit events timeline")
+@router.get("/events", summary="Recent audit events timeline", response_model=list[AuditEvent])
 async def get_events_timeline(db: AsyncSession = Depends(get_db)):
     """Latest 50 audit log events for the timeline component."""
     result = await db.execute(

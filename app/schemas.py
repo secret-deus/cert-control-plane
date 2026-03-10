@@ -168,3 +168,55 @@ class AuditLogRead(BaseModel):
     details: dict | None
     ip_address: str | None
     created_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Dashboard
+# ---------------------------------------------------------------------------
+
+
+class DashboardAgentStats(BaseModel):
+    total: int
+    active: int
+
+
+class DashboardCertStats(BaseModel):
+    total_active: int
+    expiring_soon: int
+
+
+class DashboardRolloutStats(BaseModel):
+    running: int
+
+
+class DashboardSummary(BaseModel):
+    agents: DashboardAgentStats
+    certificates: DashboardCertStats
+    rollouts: DashboardRolloutStats
+
+
+class AgentHealth(BaseModel):
+    id: uuid.UUID
+    name: str
+    status: str
+    liveness: str
+    last_seen: datetime | None
+    cert_expires_at: datetime | None
+    cert_revoked_at: datetime | None = None
+
+
+class CertExpiry(BaseModel):
+    id: uuid.UUID
+    agent_id: uuid.UUID
+    subject_cn: str
+    serial_hex: str
+    not_after: datetime
+
+
+class AuditEvent(BaseModel):
+    id: uuid.UUID
+    action: str
+    entity_type: str
+    actor: str
+    created_at: datetime
+    details: dict | None = None

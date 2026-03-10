@@ -38,7 +38,7 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route element={<Layout onLogout={handleLogout} />}>
-          <Route index element={<Dashboard apiKey={apiKey} onAuthError={handleLogout} />} />
+          <Route index element={<Dashboard />} />
           <Route path="agents" element={<AgentsPage />} />
           <Route path="certificates" element={<CertificatesPage />} />
           <Route path="rollouts" element={<RolloutsPage />} />
