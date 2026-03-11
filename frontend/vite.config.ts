@@ -14,7 +14,8 @@ export default defineConfig({
       '/api': {
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
-        secure: false, // For local dev with self-signed certs
+        // safe: backend is plain HTTP on localhost, no TLS to verify
+        secure: false,
       }
     }
   }

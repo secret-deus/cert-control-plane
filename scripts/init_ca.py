@@ -57,7 +57,7 @@ def build_ca(cn: str = "Cert Control Plane CA") -> tuple[rsa.RSAPrivateKey, x509
         .public_key(key.public_key())
         .serial_number(x509.random_serial_number())
         .not_valid_before(now)
-        .not_valid_after(now + datetime.timedelta(days=3650))
+        .not_valid_after(now + datetime.timedelta(days=1825))  # 5 years
         .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
         .add_extension(
             x509.KeyUsage(
@@ -100,7 +100,7 @@ def build_server_cert(
         .public_key(key.public_key())
         .serial_number(x509.random_serial_number())
         .not_valid_before(now)
-        .not_valid_after(now + datetime.timedelta(days=825))
+        .not_valid_after(now + datetime.timedelta(days=398))  # ~13 months (browser limit)
         .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
         .add_extension(x509.SubjectAlternativeName(dns_names), critical=False)
         .sign(ca_key, hashes.SHA256())
@@ -117,6 +117,7 @@ def main():
 
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
+    os.chmod(out, 0o700)
 
     print("Generating CA...")
     ca_key, ca_cert = build_ca()

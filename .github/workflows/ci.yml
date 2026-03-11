@@ -33,7 +33,7 @@ jobs:
           pip install -e ".[dev]"
           pip install aiosqlite ruff
       - name: Lint
-        run: ruff check app/ agent/ tests/ --select E,F,W --ignore E501
+        run: ruff check app/ agent/ tests/ --select E,F,W,B,S --ignore E501,S101
       - name: Test
         run: pytest tests/ -v --tb=short
 

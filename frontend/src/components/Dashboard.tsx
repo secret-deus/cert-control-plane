@@ -4,7 +4,7 @@ import {
   CheckCircle2, AlertTriangle
 } from 'lucide-react';
 import { formatDistanceToNow, format } from 'date-fns';
-import { getApiKey } from '../lib/api';
+import { apiFetch } from '../lib/api';
 
 // Types for our API responses
 interface Stats {
@@ -47,31 +47,17 @@ export default function Dashboard() {
 
   const fetchData = async () => {
     try {
-      const apiKey = getApiKey();
-      if (!apiKey) {
-        sessionStorage.removeItem('admin_api_key');
-        window.location.reload();
-        return;
-      }
-      const headers = { 'X-Admin-API-Key': apiKey };
-
-      const [statsRes, agentsRes, expRes, evRes] = await Promise.all([
-        fetch('/api/control/dashboard/summary', { headers }),
-        fetch('/api/control/dashboard/agents-health', { headers }),
-        fetch('/api/control/dashboard/certs-expiry', { headers }),
-        fetch('/api/control/dashboard/events', { headers })
+      const [stats, agents, exp, ev] = await Promise.all([
+        apiFetch<Stats>('/dashboard/summary'),
+        apiFetch<AgentHealth[]>('/dashboard/agents-health'),
+        apiFetch<CertExpiry[]>('/dashboard/certs-expiry'),
+        apiFetch<AuditEvent[]>('/dashboard/events'),
       ]);
 
-      if (statsRes.status === 401 || statsRes.status === 403) {
-        sessionStorage.removeItem('admin_api_key');
-        window.location.reload();
-        return;
-      }
-
-      setStats(await statsRes.json());
-      setAgents(await agentsRes.json());
-      setExpirations(await expRes.json());
-      setEvents(await evRes.json());
+      setStats(stats);
+      setAgents(agents);
+      setExpirations(exp);
+      setEvents(ev);
       setLastRefresh(new Date());
     } catch (err) {
       console.error("Failed to fetch dashboard data:", err);
