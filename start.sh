@@ -87,7 +87,7 @@ fi
 # ── 5. 启动后端 ──
 echo "[5/6] 启动 FastAPI 后端 (port $BACKEND_PORT)..."
 # 杀旧进程
-lsof -ti:$BACKEND_PORT 2>/dev/null | xargs -r kill -9 2>/dev/null || true
+lsof -ti:$BACKEND_PORT 2>/dev/null | xargs -r kill -15 2>/dev/null || true
 sleep 1
 
 cd "$ROOT_DIR"
@@ -124,7 +124,7 @@ echo "  后端 API:    http://127.0.0.1:$BACKEND_PORT"
 echo "  API 文档:    http://127.0.0.1:$BACKEND_PORT/docs"
 [ -n "$FRONTEND_PID" ] && echo "  前端面板:    http://localhost:$FRONTEND_PORT"
 echo ""
-echo "  ADMIN_API_KEY: $API_KEY"
+echo "  ADMIN_API_KEY: (见 .env 文件)"
 echo ""
 echo "  停止服务:"
 echo "    kill $BACKEND_PID"

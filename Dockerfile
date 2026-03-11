@@ -5,7 +5,7 @@
 # ============================================================
 
 # ── Stage 1: Frontend build ──
-FROM node:22-alpine AS frontend-builder
+FROM node:22.14-alpine3.21 AS frontend-builder
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --production=false
@@ -13,7 +13,7 @@ COPY frontend/ .
 RUN npm run build
 
 # ── Stage 2: Python application ──
-FROM python:3.12-slim
+FROM python:3.12.9-slim
 
 # Create non-root user
 RUN adduser --disabled-password --no-create-home --gecos "" appuser
@@ -41,4 +41,5 @@ USER appuser
 EXPOSE 8000
 
 # Run migrations then start server
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# Migrations run separately so failures are clearly visible
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]

@@ -577,9 +577,20 @@ async def list_audit_logs(
 
 
 def _actor(request: Request) -> str:
-    """Extract actor identity from request (X-Actor header or fallback to 'admin')."""
-    return request.headers.get("X-Actor", "admin")
+    """Derive actor identity from the authenticated admin key.
+
+    Uses the first 8 hex chars of the API key as a stable, non-secret
+    identifier so audit logs can distinguish multiple admin keys without
+    exposing the full key.
+    """
+    api_key = request.headers.get("X-Admin-API-Key", "")
+    if api_key and len(api_key) >= 8:
+        return f"admin:{api_key[:8]}"
+    return "admin"
 
 
 def _ip(request: Request) -> str | None:
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
     return request.client.host if request.client else None
