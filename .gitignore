@@ -7,7 +7,6 @@ certs/
 dist/
 build/
 .venv/
-docs/
 frontend/dist/
 frontend/node_modules/
 .pytest_cache/

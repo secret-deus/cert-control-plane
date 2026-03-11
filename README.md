@@ -41,7 +41,7 @@ TLS 证书生命周期管理系统 —— 控制面板 + nginx 节点 Agent。
 bash start.sh
 ```
 
-脚本会自动完成：检查依赖 → 生成 `.env` 密钥 → 创建 CA 证书 → 启动后端 + 前端。启动后终端会显示 `ADMIN_API_KEY`，打开前端页面输入即可。
+脚本会自动完成：检查依赖 → 生成 `.env` 密钥 → 创建 CA 证书 → 启动后端 + 前端。启动后打开前端页面，输入 `.env` 文件中的 `ADMIN_API_KEY` 即可。
 
 ---
 
@@ -344,12 +344,14 @@ cert-control-plane/
 │       └── install.ps1         # ⚡ Agent 一键安装 (Windows)
 ├── tests/                      # 回归测试 (无需数据库)
 │   ├── conftest.py             # 测试 fixtures
+│   ├── test_agent_api.py       # Agent API 端到端测试
 │   ├── test_agent_auth.py      # Agent 认证测试
-│   ├── test_dashboard.py       # Dashboard API 测试
-│   ├── test_serial_hex.py      # 证书序列号测试
 │   ├── test_audit_actions.py   # 审计动作测试
+│   ├── test_dashboard.py       # Dashboard API 测试
+│   ├── test_installer.py       # 安装脚本测试
 │   ├── test_migration.py       # 迁移文件测试
-│   └── test_installer.py       # 安装脚本测试
+│   ├── test_rollout.py         # Rollout 编排器测试
+│   └── test_serial_hex.py      # 证书序列号测试
 ├── alembic/                    # 数据库迁移
 │   ├── env.py
 │   └── versions/
@@ -368,7 +370,7 @@ cert-control-plane/
 
 ## 安全设计
 
-- **私钥不出节点**: CSR 模式下，Agent 在本地生成 RSA 私钥，只提交 CSR 给控制面板
+- **私钥不出节点**: CSR 模式下，Agent 在本地生成 3072 位 RSA 私钥，只提交 CSR 给控制面板
 - **mTLS 双向认证**: Agent API 端口 (8443) 强制验证客户端证书
 - **端口隔离**: 443 端口无法访问 Agent 端点，防止运维侧绕过 mTLS 下载 bundle
 - **证书序列号绑定 (fail-closed)**: Agent 认证同时校验 `X-Client-CN` 和 `X-Client-Serial`，两者缺一不可；序列号必须与 DB 中当前证书匹配
@@ -377,7 +379,9 @@ cert-control-plane/
 - **Bootstrap Token**: 一次性使用，注册后立即作废；支持过期时间（默认 24 小时）
 - **密钥加密存储**: 服务端生成的私钥使用 Fernet 加密后存入数据库
 - **systemd 加固**: `NoNewPrivileges=true`, `ProtectSystem=strict`, `ProtectHome=true`
-- **审计日志**: 所有写操作记录到 `audit_logs` 表，不可修改
+- **审计日志**: 所有写操作记录到 `audit_logs` 表，不可修改；actor 从 API Key 前缀推导，防止伪造
+- **CORS 默认拒绝**: `cors_origins` 默认为空列表，必须显式配置
+- **TLS 加固**: 仅允许 TLSv1.2/1.3 + 现代 ECDHE 密码套件，启用 HSTS、X-Content-Type-Options、X-Frame-Options
 
 ## 环境变量 (控制面板)
 
@@ -386,6 +390,8 @@ cert-control-plane/
 | `DATABASE_URL` | 否 | `postgresql+asyncpg://...` | 数据库连接 |
 | `CA_KEY_ENCRYPTION_KEY` | 是 | - | Fernet 密钥 (加密存储私钥) |
 | `ADMIN_API_KEY` | 是 | - | Control API 认证密钥 |
+| `CORS_ORIGINS` | 否 | `[]` | CORS 允许的来源 (JSON 数组，如 `["https://example.com"]`) |
+| `POSTGRES_PASSWORD` | 否 | `postgres` | Docker PostgreSQL 密码 (生产环境必须修改) |
 | `CA_CERT_PATH` | 否 | `/certs/ca.crt` | CA 证书路径 |
 | `CA_KEY_PATH` | 否 | `/certs/ca.key` | CA 私钥路径 |
 | `CERT_VALIDITY_DAYS` | 否 | `365` | 签发证书有效期 (天) |
