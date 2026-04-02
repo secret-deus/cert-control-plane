@@ -8,13 +8,20 @@ AGENT_NAME="${SMOKE_AGENT_NAME:-edge-node-live-1}"
 COMMON_NAME="${SMOKE_COMMON_NAME:-api.example.com}"
 LOCAL_PATH="${SMOKE_LOCAL_PATH:-/etc/nginx/certs/api.example.com.crt}"
 VALID_DAYS="${SMOKE_CERT_DAYS:-30}"
+EDGE_SERVICE="${SMOKE_EDGE_SERVICE:-edge-node}"
+EDGE_OVERLAY="${SMOKE_EDGE_OVERLAY:-}"
+PUBLIC_PORT="${SMOKE_PUBLIC_PORT:-9444}"
 
 compose_base() {
   docker compose "$@"
 }
 
 compose_edge() {
-  docker compose -f docker-compose.yml -f tools/agent-smoke/docker-compose.edge.yml "$@"
+  if [ -n "$EDGE_OVERLAY" ]; then
+    docker compose -f docker-compose.yml -f tools/agent-smoke/docker-compose.edge.yml -f "$EDGE_OVERLAY" "$@"
+  else
+    docker compose -f docker-compose.yml -f tools/agent-smoke/docker-compose.edge.yml "$@"
+  fi
 }
 
 echo "[1/4] rebuilding control plane and edge node"
@@ -52,8 +59,8 @@ else:
     print(f"no stale agent named {agent_name}")
 PY
 
-compose_edge rm -sf edge-node >/dev/null 2>&1 || true
-compose_edge up -d --build edge-node
+compose_edge rm -sf "$EDGE_SERVICE" >/dev/null 2>&1 || true
+compose_edge up -d --build "$EDGE_SERVICE"
 
 echo "[3/4] approving agent, generating cert, uploading and assigning"
 RESULT=$(
@@ -159,7 +166,7 @@ ATTEMPTS=0
 CURRENT_SERIAL=""
 while [ "$ATTEMPTS" -lt 30 ]; do
   CURRENT_SERIAL=$(
-    compose_edge exec -T edge-node env LOCAL_PATH="$LOCAL_PATH" sh -lc \
+    compose_edge exec -T "$EDGE_SERVICE" env LOCAL_PATH="$LOCAL_PATH" sh -lc \
       'openssl x509 -in "$LOCAL_PATH" -noout -serial 2>/dev/null | cut -d= -f2' 2>/dev/null || true
   )
   CURRENT_SERIAL=$(printf '%s' "$CURRENT_SERIAL" \
@@ -174,12 +181,12 @@ done
 
 if [ "${CURRENT_SERIAL:-}" != "$SERIAL_HEX" ]; then
   echo "smoke failed: edge node did not deploy expected serial $SERIAL_HEX" >&2
-  compose_edge logs --tail=120 edge-node >&2 || true
+  compose_edge logs --tail=120 "$EDGE_SERVICE" >&2 || true
   exit 1
 fi
 
 echo "[done] deployed certificate on edge node"
-compose_edge exec -T edge-node env LOCAL_PATH="$LOCAL_PATH" sh -lc \
+compose_edge exec -T "$EDGE_SERVICE" env LOCAL_PATH="$LOCAL_PATH" sh -lc \
   'openssl x509 -in "$LOCAL_PATH" -noout -serial -subject -dates'
 
-echo "public endpoint: https://localhost:9444"
+echo "public endpoint: https://localhost:${PUBLIC_PORT}"

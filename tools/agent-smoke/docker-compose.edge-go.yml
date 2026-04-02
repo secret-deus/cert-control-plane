@@ -1,0 +1,9 @@
+services:
+  edge-node:
+    build:
+      context: .
+      dockerfile: tools/agent-smoke/edge-node-go.Dockerfile
+    environment:
+      EDGE_AGENT_CMD: "/usr/local/bin/cert-agent"
+    ports:
+      - "9445:9443"

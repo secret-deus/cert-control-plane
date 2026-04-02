@@ -5,6 +5,7 @@ CERT_DIR="/etc/nginx/certs"
 CERT_PATH="${CERT_DIR}/api.example.com.crt"
 KEY_PATH="${CERT_DIR}/api.example.com.key"
 CHAIN_PATH="${CERT_DIR}/api.example.com.chain.crt"
+EDGE_AGENT_CMD="${EDGE_AGENT_CMD:-python -m agent}"
 
 mkdir -p "${CERT_DIR}" /var/lib/cert-agent
 
@@ -21,4 +22,4 @@ if [ ! -f "${CHAIN_PATH}" ]; then
 fi
 
 nginx
-exec python -m agent
+exec sh -lc "${EDGE_AGENT_CMD}"

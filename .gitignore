@@ -11,3 +11,5 @@ frontend/dist/
 frontend/node_modules/
 .pytest_cache/
 .qoder/
+agent-go/cert-agent
+agent-rust/target/

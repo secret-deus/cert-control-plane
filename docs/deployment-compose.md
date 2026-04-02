@@ -100,6 +100,20 @@ bash tools/agent-smoke/run-live-smoke.sh
 https://localhost:9444
 ```
 
+如果你要验证 Go 版纯二进制 Agent，可执行：
+
+```bash
+SMOKE_EDGE_OVERLAY=tools/agent-smoke/docker-compose.edge-go.yml \
+SMOKE_PUBLIC_PORT=9445 \
+bash tools/agent-smoke/run-live-smoke.sh
+```
+
+对应业务入口：
+
+```bash
+https://localhost:9445
+```
+
 ## 常用日志命令
 
 查看全部服务日志：
