@@ -15,16 +15,24 @@ interface AuditEntry {
 }
 
 const ACTION_COLORS: Record<string, string> = {
-  register: 'bg-emerald-500/20 text-emerald-400',
-  renew: 'bg-blue-500/20 text-blue-400',
-  revoke: 'bg-red-500/20 text-red-400',
-  create: 'bg-purple-500/20 text-purple-400',
-  delete: 'bg-red-500/20 text-red-400',
-  reset_token: 'bg-amber-500/20 text-amber-400',
-  rollout_start: 'bg-blue-500/20 text-blue-400',
-  rollout_pause: 'bg-amber-500/20 text-amber-400',
-  rollout_resume: 'bg-emerald-500/20 text-emerald-400',
-  rollout_rollback: 'bg-red-500/20 text-red-400',
+  agent_registered: 'bg-emerald-500/20 text-emerald-400',
+  agent_approved: 'bg-emerald-500/20 text-emerald-400',
+  agent_created: 'bg-purple-500/20 text-purple-400',
+  agent_deleted: 'bg-red-500/20 text-red-400',
+  agent_rejected: 'bg-red-500/20 text-red-400',
+  agent_fetch_certs: 'bg-blue-500/20 text-blue-400',
+  external_cert_uploaded: 'bg-purple-500/20 text-purple-400',
+  cert_assigned: 'bg-blue-500/20 text-blue-400',
+  cert_assignment_deleted: 'bg-red-500/20 text-red-400',
+  cert_rolled_back: 'bg-red-500/20 text-red-400',
+  rollout_created: 'bg-purple-500/20 text-purple-400',
+  rollout_started: 'bg-blue-500/20 text-blue-400',
+  rollout_batch_started: 'bg-blue-500/20 text-blue-400',
+  rollout_paused: 'bg-amber-500/20 text-amber-400',
+  rollout_resumed: 'bg-emerald-500/20 text-emerald-400',
+  rollout_completed: 'bg-emerald-500/20 text-emerald-400',
+  rollout_failed: 'bg-red-500/20 text-red-400',
+  rollout_rolled_back: 'bg-red-500/20 text-red-400',
 };
 
 export default function AuditLogsPage() {
@@ -35,25 +43,31 @@ export default function AuditLogsPage() {
   const [offset, setOffset] = useState(0);
   const limit = 50;
 
-  const fetchLogs = async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
-      if (filterAction) params.set('action', filterAction);
-      const data = await apiFetch<{items: AuditEntry[]}>(`/audit?${params}`);
-      setLogs(data.items || []);
-    } catch {
-      /* ignore */
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(() => {
+    const loadLogs = async () => {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+        if (filterAction) params.set('action', filterAction);
+        const data = await apiFetch<{items: AuditEntry[]}>(`/audit?${params}`);
+        setLogs(data.items || []);
+      } catch {
+        /* ignore */
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  useEffect(() => { fetchLogs(); }, [offset, filterAction]);
+    void loadLogs();
+  }, [filterAction, offset]);
 
   const toggleExpand = (id: string) => {
     const next = new Set(expanded);
-    next.has(id) ? next.delete(id) : next.add(id);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
     setExpanded(next);
   };
 

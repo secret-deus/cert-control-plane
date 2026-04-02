@@ -1,0 +1,20 @@
+services:
+  edge-node:
+    build:
+      context: .
+      dockerfile: tools/agent-smoke/edge-node.Dockerfile
+    depends_on:
+      app:
+        condition: service_started
+    environment:
+      CERT_AGENT_CP_URL: "http://app:8000"
+      CERT_AGENT_NAME: "edge-node-live-1"
+      CERT_AGENT_CERT_TABLE: '[{"local_path":"/etc/nginx/certs/api.example.com.crt"}]'
+      CERT_AGENT_STATE_DIR: "/var/lib/cert-agent"
+      CERT_AGENT_NGINX_CERT_DIR: "/etc/nginx/certs"
+      CERT_AGENT_NGINX_RELOAD_CMD: "nginx -s reload"
+      CERT_AGENT_HEARTBEAT_INTERVAL: "2"
+      CERT_AGENT_POLL_INTERVAL: "2"
+      PYTHONUNBUFFERED: "1"
+    ports:
+      - "9444:9443"

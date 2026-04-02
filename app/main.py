@@ -11,7 +11,6 @@ from app.api.agent import router as agent_router
 from app.api.control import router as control_router
 from app.api.dashboard import router as dashboard_router
 from app.config import get_settings
-from app.core.crypto import get_cert_manager, load_ca
 from app.database import check_db, create_tables, dispose_engine
 from app.orchestrator.rollout import advance_all_rollouts
 import app.models  # noqa: F401  ensure models registered with Base
@@ -29,23 +28,6 @@ async def lifespan(app: FastAPI):
     if str(settings.database_url).startswith("sqlite"):
         await create_tables()
         logger.info("SQLite dev mode: tables auto-created")
-
-    ca_exists = os.path.exists(settings.ca_cert_path) and os.path.exists(settings.ca_key_path)
-    if ca_exists:
-        load_ca(settings.ca_cert_path, settings.ca_key_path)
-        logger.info("CA loaded from %s", settings.ca_cert_path)
-    elif settings.strict_ca_startup:
-        raise RuntimeError(
-            f"CA files not found ({settings.ca_cert_path} / {settings.ca_key_path}). "
-            "Run scripts/init_ca.py first, or set STRICT_CA_STARTUP=false for dev mode."
-        )
-    else:
-        logger.warning(
-            "CA files not found (%s / %s). Running in degraded mode. "
-            "Register/renew will fail until CA is loaded.",
-            settings.ca_cert_path,
-            settings.ca_key_path,
-        )
 
     global _scheduler
     _scheduler = AsyncIOScheduler()
@@ -70,47 +52,56 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Cert Control Plane",
         description="""
-## 证书生命周期管理后端
+## 外部证书分发控制平面
 
-通过两组 API 管理 Agent 证书的全生命周期：
+当前版本采用外部证书分发模式：
 
-### Agent API（端口 8443，mTLS 认证）
-- Agent 向控制平面注册并获取证书
-- 下载证书 bundle（仅限 mTLS 端口，UI/管理侧无私钥访问）
-- Agent 主动续期（提交 CSR）
-- 心跳上报，查询待执行动作
+- 运维侧上传外部证书和私钥
+- 控制平面加密存储私钥，并维护 `agent + local_path` 分配关系
+- Agent 注册并经管理员审批后，按心跳节奏调用 `fetch-certs` 拉取更新
 
-### Control API（端口 443，Admin API Key 认证）
-- 管理 Agent 注册信息
-- 查看/撤销证书（不暴露私钥）
-- 创建并管理 Rollout（批量证书轮换）
-- 支持 pause / resume / rollback
-- 审计日志查询
+### Agent API
+- TOFU 注册与审批轮询
+- 心跳上报
+- 批量比较本地证书有效期并拉取更新
+
+### Control API
+- Agent 管理（创建、审批、拒绝、删除）
+- 外部证书管理与分配
+- Agent 证书记录、Rollout、审计日志
 
 ### 认证方式
-- **Agent API**：nginx 在 8443 端口强制 mTLS，验证通过后注入 `X-Client-CN` 头
-- **Control API**：请求头携带 `X-Admin-API-Key`
+- **Agent API**：`X-Agent-Token`
+- **Control API**：`X-Admin-API-Key`
         """,
-        version="0.1.0",
+        version="0.2.0",
         lifespan=lifespan,
         docs_url="/docs",
         redoc_url="/redoc",
         openapi_tags=[
             {
                 "name": "agent",
-                "description": "**Agent API** – 运行在 8443 mTLS 端口。Agent 注册、证书下载、续期、心跳。",
+                "description": "**Agent API** – TOFU 注册、审批轮询、心跳、批量拉取证书。",
             },
             {
                 "name": "control / agents",
-                "description": "**Control API** – Agent 管理：注册预配置、查询、删除。",
+                "description": "**Control API** – Agent 管理：注册审批、查询、删除。",
+            },
+            {
+                "name": "control / external-certs",
+                "description": "**Control API** – 外部证书与分配管理。",
             },
             {
                 "name": "control / certificates",
-                "description": "**Control API** – 证书查看与撤销（只读，无私钥）。",
+                "description": "**Control API** – Agent 证书审计记录查询。",
             },
             {
                 "name": "control / rollouts",
-                "description": "**Control API** – Rollout 批量证书轮换：创建、启动、暂停、恢复、回滚。",
+                "description": "**Control API** – Rollout 批量编排：创建、启动、暂停、恢复、回滚。",
+            },
+            {
+                "name": "control / dashboard",
+                "description": "**Control API** – Dashboard 汇总、健康状态、到期告警。",
             },
             {
                 "name": "control / audit",
@@ -143,6 +134,14 @@ def create_app() -> FastAPI:
         if os.path.isdir(assets_dir):
             app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
+    @app.get("/healthz", tags=["health"], summary="健康检查")
+    async def healthz():
+        db_ok = await check_db()
+        return {
+            "status": "ok" if db_ok else "degraded",
+            "db": "connected" if db_ok else "unreachable",
+        }
+
     # SPA catch-all: serve index.html for all non-API routes
     @app.get("/{path:path}", response_class=HTMLResponse, include_in_schema=False)
     async def spa_fallback(path: str):
@@ -157,21 +156,6 @@ def create_app() -> FastAPI:
             content="Dashboard not built. Run 'npm run build' in frontend/ or use 'npm run dev' for development.",
             status_code=200,
         )
-
-    @app.get("/healthz", tags=["health"], summary="健康检查")
-    async def healthz():
-        db_ok = await check_db()
-        try:
-            get_cert_manager()
-            ca_ok = True
-        except RuntimeError:
-            ca_ok = False
-        healthy = db_ok and ca_ok
-        return {
-            "status": "ok" if healthy else "degraded",
-            "db": "connected" if db_ok else "unreachable",
-            "ca": "loaded" if ca_ok else "not_loaded",
-        }
 
     return app
 

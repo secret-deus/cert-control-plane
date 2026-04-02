@@ -32,7 +32,7 @@ export default function AuthScreen({ onLogin }: AuthScreenProps) {
       } else {
         setError(`Server error: ${res.status}`);
       }
-    } catch (err) {
+    } catch {
       setError('Connection failed. Ensure the server is running.');
     } finally {
       setIsVerifying(false);
@@ -94,7 +94,7 @@ export default function AuthScreen({ onLogin }: AuthScreenProps) {
       <div className="mt-8 text-xs text-[var(--color-text-secondary)] flex gap-4 opacity-50">
         <span>Port 443 API</span>
         <span>•</span>
-        <span>mTLS Secured Agents</span>
+        <span>8443 Token Auth</span>
       </div>
     </div>
   );

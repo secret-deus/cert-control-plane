@@ -1,4 +1,4 @@
-"""Bootstrap token generation and Admin API key validation."""
+"""Admin API key validation and agent token generation."""
 
 import secrets
 
@@ -10,8 +10,8 @@ from app.config import get_settings
 _api_key_header = APIKeyHeader(name="X-Admin-API-Key", auto_error=False)
 
 
-def generate_bootstrap_token() -> str:
-    """Cryptographically random 48-byte hex token."""
+def generate_agent_token() -> str:
+    """Generate a cryptographically random agent token (48-byte hex)."""
     return secrets.token_hex(48)
 
 
@@ -24,8 +24,3 @@ def verify_admin_key(api_key: str | None = Security(_api_key_header)) -> str:
             detail="Invalid or missing Admin API key",
         )
     return api_key
-
-
-def extract_client_cn(client_cn_header: str | None) -> str | None:
-    """Extract agent CN from X-Client-CN header injected by nginx after mTLS."""
-    return client_cn_header or None

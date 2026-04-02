@@ -1,11 +1,12 @@
 """Rollout Orchestrator – advances batches, handles pause/resume/rollback.
 
-CSR mode flow:
-  1. Orchestrator marks rollout_items as IN_PROGRESS (= "agent should renew")
-  2. Agent sees pending_action=renew in heartbeat → generates key + CSR → POST /renew
-  3. /renew endpoint issues cert and marks rollout_item COMPLETED
-  4. Orchestrator waits for ALL items in the current batch to finish before advancing
-  5. Items stuck IN_PROGRESS beyond timeout are marked FAILED
+Current project baseline is external certificate distribution, not CSR signing.
+
+Important limitation:
+  - Rollout items are still modeled at the agent level.
+  - The distribution pipeline itself operates on agent + local_path + external_cert.
+  - Because of that, rollout currently acts as an agent-level batch window and
+    state machine, not a precise per-assignment deployment fact source.
 """
 
 import logging
@@ -18,7 +19,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.core.audit import write_audit
-from app.core.crypto import CertManager
 from app.database import AsyncSessionLocal
 from app.models import (
     Agent,
@@ -29,7 +29,7 @@ from app.models import (
     RolloutItemStatus,
     RolloutStatus,
 )
-from app.registry.store import registry
+from app.registry.store import get_current_cert
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +79,7 @@ async def create_rollout(
     for idx, agent in enumerate(agents):
         batch_number = (idx // batch_size) + 1
         # Snapshot the current cert for potential rollback
-        current_cert = await registry.get_current_cert(db, agent.id)
+        current_cert = await get_current_cert(db, agent.id)
         item = RolloutItem(
             rollout_id=rollout.id,
             agent_id=agent.id,
@@ -141,7 +141,7 @@ async def advance_all_rollouts() -> None:
 
 
 async def _advance_rollout(db: AsyncSession, rollout: Rollout) -> None:
-    """Advance one rollout (CSR mode).
+    """Advance one rollout.
 
     Logic:
       1. Timeout any IN_PROGRESS items that have exceeded the deadline
@@ -162,7 +162,7 @@ async def _advance_rollout(db: AsyncSession, rollout: Rollout) -> None:
     if current_batch > 0:
         batch_done = await _is_batch_complete(db, rollout.id, current_batch)
         if not batch_done:
-            # Still waiting for agents to finish renewal
+            # Still waiting for the current agent batch to reach a terminal state
             return
 
         # Fail-fast: if any item in the batch failed, stop the rollout
@@ -410,15 +410,6 @@ async def rollback_rollout(
                 .where(Certificate.id == item.previous_cert_id)
                 .values(is_current=True)
             )
-            # Update agent fingerprint
-            prev_cert = await db.get(Certificate, item.previous_cert_id)
-            if prev_cert:
-                agent = await db.get(Agent, item.agent_id)
-                if agent:
-                    agent.fingerprint = CertManager.fingerprint(
-                        prev_cert.cert_pem.encode()
-                    )
-                    db.add(agent)
 
             await write_audit(
                 db,

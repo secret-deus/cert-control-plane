@@ -10,3 +10,4 @@ build/
 frontend/dist/
 frontend/node_modules/
 .pytest_cache/
+.qoder/

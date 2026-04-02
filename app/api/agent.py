@@ -1,340 +1,218 @@
-"""Agent API – endpoints called by agents over mTLS (port 8443).
+"""Agent API – endpoints called by agents.
 
 Authentication:
-  - /register  : one-time bootstrap_token in request body
-  - other endpoints: mTLS client cert → X-Client-CN + X-Client-Serial headers
-    injected by nginx.  Both headers are **mandatory** (fail-closed).
+  - /register      : no auth (TOFU first contact)
+  - /register/status: no auth (poll by agent_id + fingerprint)
+  - /heartbeat     : X-Agent-Token header
+  - /fetch-certs   : X-Agent-Token header
 """
 
 import logging
-from datetime import datetime, timedelta, timezone
+import secrets
+from datetime import datetime, timezone
 
+from cryptography import x509
+from cryptography.x509.oid import NameOID
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
-from fastapi.responses import PlainTextResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.core.audit import write_audit
+from app.core.crypto import decrypt_key
 from app.database import get_db
-from app.models import Agent, AgentStatus, Certificate, RolloutItem, RolloutItemStatus
-from app.registry.store import registry
+from app.models import Agent, AgentCertAssignment, AgentStatus, Certificate, ExternalCertificate
 from app.schemas import (
+    AgentFetchCertsRequest,
+    AgentFetchCertsResponse,
+    AgentReportCertsRequest,
+    AgentReportCertsResponse,
     AgentRegisterRequest,
     AgentRegisterResponse,
-    AgentRenewRequest,
-    AgentRenewResponse,
+    AgentRegisterStatusResponse,
+    CertUpdateItem,
     HeartbeatRequest,
     HeartbeatResponse,
 )
 
 logger = logging.getLogger(__name__)
 
-# Auth deny reason codes – machine-parsable, used in HTTP detail and logs.
-DENY_MISSING_CN = "missing_client_cn"
-DENY_MISSING_SERIAL = "missing_client_serial"
-DENY_AGENT_NOT_ACTIVE = "agent_not_active"
-DENY_NO_CURRENT_CERT = "no_current_cert"
-DENY_SERIAL_MISMATCH = "serial_mismatch"
-
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 
 
 # ---------------------------------------------------------------------------
-# Internal helper
+# Auth helper: resolve agent by X-Agent-Token
 # ---------------------------------------------------------------------------
 
 
-async def _resolve_agent(
-    x_client_cn: str | None,
-    x_client_serial: str | None,
+async def _resolve_agent_by_token(
+    x_agent_token: str | None,
     db: AsyncSession,
 ) -> Agent:
-    """Resolve nginx-injected identity headers to an active Agent.
-
-    **Fail-closed**: both ``X-Client-CN`` and ``X-Client-Serial`` are
-    mandatory.  Missing or blank values are rejected immediately.
-
-    Validates:
-      1. X-Client-CN present (mTLS verified by nginx)
-      2. X-Client-Serial present (fail-closed — MUST be provided)
-      3. Agent exists and is ACTIVE
-      4. Current certificate is not revoked
-      5. Client cert serial matches the current certificate's serial_hex
-    """
-    # --- 1. CN ---
-    if not x_client_cn:
-        logger.warning("auth denied: %s", DENY_MISSING_CN)
+    """Resolve X-Agent-Token header to an active Agent."""
+    if not x_agent_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=DENY_MISSING_CN,
+            detail="X-Agent-Token header is required",
         )
-
-    # --- 2. Serial header (fail-closed) ---
-    if not x_client_serial:
-        logger.warning("auth denied: %s (cn=%s)", DENY_MISSING_SERIAL, x_client_cn)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=DENY_MISSING_SERIAL,
-        )
-
-    # --- 3. Active agent lookup ---
     result = await db.execute(
         select(Agent).where(
-            Agent.name == x_client_cn,
+            Agent.agent_token == x_agent_token,
             Agent.status == AgentStatus.ACTIVE,
         )
     )
     agent = result.scalar_one_or_none()
     if not agent:
-        logger.warning("auth denied: %s (cn=%s)", DENY_AGENT_NOT_ACTIVE, x_client_cn)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=DENY_AGENT_NOT_ACTIVE,
+            detail="Invalid or inactive agent token",
         )
-
-    # --- 4. Current non-revoked cert ---
-    cert_result = await db.execute(
-        select(Certificate).where(
-            Certificate.agent_id == agent.id,
-            Certificate.is_current.is_(True),
-            Certificate.revoked_at.is_(None),
-        )
-    )
-    current_cert = cert_result.scalar_one_or_none()
-    if not current_cert:
-        logger.warning("auth denied: %s (cn=%s)", DENY_NO_CURRENT_CERT, x_client_cn)
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=DENY_NO_CURRENT_CERT,
-        )
-
-    # --- 5. Serial match ---
-    # nginx $ssl_client_serial is colon-separated hex (e.g. "0A:1B:2C"),
-    # our DB stores lowercase continuous hex ("0a1b2c").
-    presented_serial = x_client_serial.replace(":", "").lower()
-    if presented_serial != current_cert.serial_hex:
-        logger.warning(
-            "auth denied: %s (cn=%s, presented=%s, expected=%s)",
-            DENY_SERIAL_MISMATCH,
-            x_client_cn,
-            presented_serial,
-            current_cert.serial_hex,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=DENY_SERIAL_MISMATCH,
-        )
-
     return agent
 
 
+def _parse_reported_cert(cert_pem: str) -> tuple[x509.Certificate, str, str]:
+    """Parse a PEM cert into (cert, subject_cn, serial_hex)."""
+    try:
+        cert = x509.load_pem_x509_certificate(cert_pem.encode())
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid certificate PEM: {exc}")
+
+    cn_attrs = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
+    subject_cn = cn_attrs[0].value if cn_attrs else cert.subject.rfc4514_string()
+    serial_hex = format(cert.serial_number, "x").lower()
+    return cert, subject_cn, serial_hex
+
+
 # ---------------------------------------------------------------------------
-# POST /api/agent/register
+# POST /api/agent/register  (TOFU)
 # ---------------------------------------------------------------------------
 
 
 @router.post(
     "/register",
     response_model=AgentRegisterResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Agent 注册",
+    status_code=status.HTTP_200_OK,
+    summary="Agent TOFU 注册",
     description="""
-Agent 首次注册，使用控制平面预生成的一次性 **bootstrap_token** 完成身份验证。
+Agent 首次注册（TOFU：信任首次使用）。
 
 **流程：**
-1. 运维人员通过 `POST /api/control/agents` 预配置 Agent，获得 `bootstrap_token`
-2. Agent 本地生成 RSA 私钥和 CSR（私钥**永远不离开 Agent**）
-3. Agent 调用此接口提交 `bootstrap_token` + CSR
-4. 控制平面签发证书并返回 `cert_pem` + `chain_pem`
-5. `bootstrap_token` 立即作废（一次性）
-6. 后续所有请求使用 mTLS（凭此证书）
+1. Agent 生成 RSA 公私钥，计算 `SHA256(DER public key)` 作为指纹
+2. Agent 提交 `{name, fingerprint}`
+3. 若该名称不存在 → 创建 Agent，`status=pending_approval`，返回 `{status: "pending", agent_id}`
+4. 若该名称已存在且指纹匹配且已激活 → 返回 `{status: "approved", agent_token}`
+5. 若指纹不匹配 → 403
 
-**注意：** 此接口部署在 8443 mTLS 端口，首次注册时无需客户端证书（bootstrap 阶段）。
+**管理员审批后：** Agent 轮询 `GET /api/agent/register/status` 拿到 `agent_token`
     """,
-    responses={
-        201: {"description": "注册成功，返回证书 PEM"},
-        401: {"description": "bootstrap_token 无效或已使用"},
-    },
 )
 async def register_agent(
     body: AgentRegisterRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Agent).where(
-            Agent.bootstrap_token == body.bootstrap_token,
-            Agent.status == AgentStatus.PENDING,
+    # Check if agent name already exists
+    result = await db.execute(select(Agent).where(Agent.name == body.name))
+    existing = result.scalar_one_or_none()
+
+    if existing is None:
+        # New agent – create with pending_approval
+        agent = Agent(
+            name=body.name,
+            fingerprint=body.fingerprint,
+            status=AgentStatus.PENDING_APPROVAL,
         )
-    )
-    agent = result.scalar_one_or_none()
-    if not agent:
+        db.add(agent)
+        await db.flush()
+
+        await write_audit(
+            db,
+            action="agent_registered",
+            entity_type="agent",
+            entity_id=agent.id,
+            actor=agent.name,
+            details={"fingerprint": body.fingerprint},
+            ip_address=request.client.host if request.client else None,
+        )
+        await db.commit()
+        await db.refresh(agent)
+
+        return AgentRegisterResponse(
+            status="pending",
+            agent_id=agent.id,
+            agent_token=None,
+            message="Registration submitted. Waiting for admin approval.",
+        )
+
+    # Existing agent
+    if existing.fingerprint != body.fingerprint:
+        logger.warning(
+            "Fingerprint mismatch for agent '%s': presented=%s, stored=%s",
+            body.name,
+            body.fingerprint,
+            existing.fingerprint,
+        )
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired bootstrap token",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Fingerprint mismatch – potential impersonation attempt",
         )
 
-    # Check token expiry
-    settings = get_settings()
-    if agent.bootstrap_token_created_at:
-        expire_at = agent.bootstrap_token_created_at + timedelta(
-            hours=settings.bootstrap_token_expire_hours
+    if existing.status == AgentStatus.ACTIVE and existing.agent_token:
+        # Already approved – return token directly
+        return AgentRegisterResponse(
+            status="approved",
+            agent_id=existing.id,
+            agent_token=existing.agent_token,
+            message="Agent is approved and active.",
         )
-        if datetime.now(tz=timezone.utc) > expire_at:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Bootstrap token has expired",
-            )
 
-    try:
-        cert = await registry.issue_from_csr(db, agent=agent, csr_pem=body.csr_pem)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    agent.bootstrap_token = None  # Consume token
-    db.add(agent)
-
-    await write_audit(
-        db,
-        action="agent_registered",
-        entity_type="agent",
-        entity_id=agent.id,
-        actor=agent.name,
-        details={"serial_hex": cert.serial_hex},
-        ip_address=request.client.host if request.client else None,
-    )
-    await db.commit()
-    await db.refresh(cert)
-
+    # Still pending
     return AgentRegisterResponse(
-        cert_pem=cert.cert_pem,
-        chain_pem=cert.chain_pem,
-        agent_id=agent.id,
+        status="pending",
+        agent_id=existing.id,
+        agent_token=None,
+        message="Awaiting admin approval.",
     )
 
 
 # ---------------------------------------------------------------------------
-# GET /api/agent/bundle
+# GET /api/agent/register/status  (polling)
 # ---------------------------------------------------------------------------
 
 
 @router.get(
-    "/bundle",
-    summary="下载证书 Bundle",
-    description="""
-下载当前 Agent 的证书 Bundle（PEM 格式，证书 + CA 链拼接）。
-
-**安全约束：**
-- 此端点**仅**开放在 8443 mTLS 端口，必须持有有效客户端证书才能访问
-- nginx 在 443 控制端口上对此路径返回 `403`，**运维 UI 无法访问**
-- 若证书由控制平面服务端生成（非 CSR 流程），返回内容包含私钥；CSR 流程下仅返回证书链（私钥在 Agent 本地）
-
-**响应格式：** `application/x-pem-file`，多段 PEM 拼接（cert → key（如有）→ chain）
-    """,
-    response_class=PlainTextResponse,
-    responses={
-        200: {"description": "PEM bundle 文件", "content": {"application/x-pem-file": {}}},
-        401: {"description": "缺少 mTLS 客户端证书"},
-        403: {"description": "Agent 未激活或 CN 不匹配"},
-        404: {"description": "当前无有效证书"},
-    },
+    "/register/status",
+    response_model=AgentRegisterStatusResponse,
+    summary="查询注册审批状态",
+    description="Agent 轮询此端点等待管理员审批，审批通过后返回 `agent_token`。",
 )
-async def download_bundle(
-    x_client_cn: str | None = Header(None),
-    x_client_serial: str | None = Header(None),
+async def register_status(
+    agent_id: str,
+    fingerprint: str,
     db: AsyncSession = Depends(get_db),
 ):
-    agent = await _resolve_agent(x_client_cn, x_client_serial, db)
-    cert = await registry.get_current_cert(db, agent.id)
-    if not cert:
-        raise HTTPException(status_code=404, detail="No active certificate found")
-
-    bundle = registry.build_bundle(cert, include_key=True)
-    parts = [bundle["cert_pem"]]
-    if bundle["key_pem"]:
-        parts.append(bundle["key_pem"])
-    if bundle["chain_pem"]:
-        parts.append(bundle["chain_pem"])
-
-    return PlainTextResponse(
-        content="\n".join(p.strip() for p in parts),
-        media_type="application/x-pem-file",
-        headers={"Content-Disposition": f'attachment; filename="{agent.name}.pem"'},
-    )
-
-
-# ---------------------------------------------------------------------------
-# POST /api/agent/renew
-# ---------------------------------------------------------------------------
-
-
-@router.post(
-    "/renew",
-    response_model=AgentRenewResponse,
-    summary="证书续期",
-    description="""
-Agent 主动发起证书续期，提交新 CSR（Agent 重新生成私钥）。
-
-**适用场景：**
-- 控制平面通过 Rollout 批次分配了续期任务（heartbeat 返回 `pending_action: "renew"`）
-- Agent 主动发起的定期轮换
-
-**流程：**
-1. Agent 生成新的私钥 + CSR（旧私钥可以立即丢弃）
-2. 提交 CSR 到此接口
-3. 控制平面签发新证书，旧证书自动标记为 `is_current=false`
-4. 若当前有关联的 Rollout item，自动标记为 `completed`
-    """,
-    responses={
-        200: {"description": "新证书签发成功"},
-        401: {"description": "缺少 mTLS 客户端证书"},
-        403: {"description": "Agent 未激活"},
-    },
-)
-async def renew_cert(
-    body: AgentRenewRequest,
-    request: Request,
-    x_client_cn: str | None = Header(None),
-    x_client_serial: str | None = Header(None),
-    db: AsyncSession = Depends(get_db),
-):
-    agent = await _resolve_agent(x_client_cn, x_client_serial, db)
+    import uuid as _uuid
     try:
-        cert = await registry.issue_from_csr(db, agent=agent, csr_pem=body.csr_pem)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        agent_uuid = _uuid.UUID(agent_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid agent_id format")
 
-    # Mark any in-progress rollout item as completed
-    result = await db.execute(
-        select(RolloutItem).where(
-            RolloutItem.agent_id == agent.id,
-            RolloutItem.status == RolloutItemStatus.IN_PROGRESS,
+    agent = await db.get(Agent, agent_uuid)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    if agent.fingerprint != fingerprint:
+        raise HTTPException(status_code=403, detail="Fingerprint mismatch")
+
+    if agent.status == AgentStatus.ACTIVE and agent.agent_token:
+        return AgentRegisterStatusResponse(
+            status="approved",
+            agent_token=agent.agent_token,
         )
-    )
-    item = result.scalar_one_or_none()
-    if item:
-        item.new_cert_id = cert.id
-        item.status = RolloutItemStatus.COMPLETED
-        item.completed_at = datetime.now(tz=timezone.utc)
-        db.add(item)
-
-    await write_audit(
-        db,
-        action="cert_renewed",
-        entity_type="certificate",
-        entity_id=cert.id,
-        actor=agent.name,
-        details={"serial_hex": cert.serial_hex},
-        ip_address=request.client.host if request.client else None,
-    )
-    await db.commit()
-    await db.refresh(cert)
-
-    return AgentRenewResponse(
-        cert_pem=cert.cert_pem,
-        chain_pem=cert.chain_pem,
-        serial_hex=cert.serial_hex,
-    )
+    elif agent.status == AgentStatus.REVOKED:
+        return AgentRegisterStatusResponse(status="rejected")
+    else:
+        return AgentRegisterStatusResponse(status="pending_approval")
 
 
 # ---------------------------------------------------------------------------
@@ -346,40 +224,223 @@ async def renew_cert(
     "/heartbeat",
     response_model=HeartbeatResponse,
     summary="心跳上报",
-    description="""
-Agent 定期调用，更新 `last_seen` 时间戳并查询是否有待执行的证书操作。
-
-**响应字段 `pending_action`：**
-- `null` – 无待操作
-- `"renew"` – 控制平面已为此 Agent 分配了续期任务，Agent 应调用 `POST /api/agent/renew`
-
-建议 Agent 每 30~60 秒调用一次。
-    """,
-    responses={
-        200: {"description": "心跳确认，包含待操作指令"},
-        401: {"description": "缺少 mTLS 客户端证书"},
-    },
+    description="Agent 定期调用，更新 `last_seen` 时间戳。需要 `X-Agent-Token` 认证。",
 )
 async def heartbeat(
     body: HeartbeatRequest,
-    x_client_cn: str | None = Header(None),
-    x_client_serial: str | None = Header(None),
+    x_agent_token: str | None = Header(None),
     db: AsyncSession = Depends(get_db),
 ):
-    agent = await _resolve_agent(x_client_cn, x_client_serial, db)
+    settings = get_settings()
+    # Dev mode: allow bypass by agent_name in query param (dev only)
+    if settings.dev_mode and not x_agent_token:
+        # Try to find any active agent for dev convenience
+        result = await db.execute(
+            select(Agent).where(Agent.status == AgentStatus.ACTIVE).limit(1)
+        )
+        agent = result.scalar_one_or_none()
+        if not agent:
+            raise HTTPException(status_code=404, detail="No active agent found")
+    else:
+        agent = await _resolve_agent_by_token(x_agent_token, db)
+
     agent.last_seen = datetime.now(tz=timezone.utc)
     db.add(agent)
+    await db.commit()
+    return HeartbeatResponse(acknowledged=True)
 
-    result = await db.execute(
-        select(RolloutItem).where(
-            RolloutItem.agent_id == agent.id,
-            RolloutItem.status == RolloutItemStatus.IN_PROGRESS,
+
+# ---------------------------------------------------------------------------
+# POST /api/agent/fetch-certs  (batch)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/fetch-certs",
+    response_model=AgentFetchCertsResponse,
+    summary="批量拉取证书",
+    description="""
+Agent 遍历本地证书表，发送 `[{local_path, current_not_after}]`，
+平台对比每条路径对应的外部证书有效期，有更新则返回 cert+key+chain。
+
+需要 `X-Agent-Token` 认证。
+    """,
+)
+async def fetch_certs(
+    body: AgentFetchCertsRequest,
+    request: Request,
+    x_agent_token: str | None = Header(None),
+    db: AsyncSession = Depends(get_db),
+):
+    settings = get_settings()
+
+    # Resolve agent
+    if settings.dev_mode and not x_agent_token:
+        result = await db.execute(
+            select(Agent).where(Agent.status == AgentStatus.ACTIVE).limit(1)
         )
+        agent = result.scalar_one_or_none()
+        if not agent:
+            raise HTTPException(status_code=404, detail="No active agent found (dev mode)")
+    else:
+        agent = await _resolve_agent_by_token(x_agent_token, db)
+
+    updates: list[CertUpdateItem] = []
+
+    for check in body.certs:
+        # Find assignment for this agent + local_path
+        assignment_result = await db.execute(
+            select(AgentCertAssignment).where(
+                AgentCertAssignment.agent_id == agent.id,
+                AgentCertAssignment.local_path == check.local_path,
+            )
+        )
+        assignment = assignment_result.scalar_one_or_none()
+
+        if assignment is None:
+            # No assignment for this path
+            updates.append(CertUpdateItem(
+                local_path=check.local_path,
+                has_update=False,
+            ))
+            continue
+
+        # Load external cert
+        ext_cert: ExternalCertificate | None = await db.get(
+            ExternalCertificate, assignment.external_cert_id
+        )
+        if ext_cert is None or not ext_cert.is_active:
+            updates.append(CertUpdateItem(
+                local_path=check.local_path,
+                has_update=False,
+            ))
+            continue
+
+        # Compare not_after: update if server cert is newer
+        has_update = (
+            check.current_not_after is None
+            or ext_cert.not_after > check.current_not_after
+        )
+
+        if not has_update:
+            updates.append(CertUpdateItem(
+                local_path=check.local_path,
+                has_update=False,
+                not_after=ext_cert.not_after,
+            ))
+            continue
+
+        # Decrypt private key
+        try:
+            key_pem = decrypt_key(
+                ext_cert.key_pem_encrypted, settings.ca_key_encryption_key
+            ).decode()
+        except Exception:
+            logger.exception(
+                "Failed to decrypt key for cert %s (assignment %s)",
+                ext_cert.id,
+                assignment.id,
+            )
+            updates.append(CertUpdateItem(
+                local_path=check.local_path,
+                has_update=False,
+            ))
+            continue
+
+        updates.append(CertUpdateItem(
+            local_path=check.local_path,
+            has_update=True,
+            cert_pem=ext_cert.cert_pem,
+            key_pem=key_pem,
+            chain_pem=ext_cert.chain_pem,
+            not_after=ext_cert.not_after,
+        ))
+
+    await write_audit(
+        db,
+        action="agent_fetch_certs",
+        entity_type="agent",
+        entity_id=agent.id,
+        actor=agent.name,
+        details={
+            "paths_checked": len(body.certs),
+            "paths_updated": sum(1 for u in updates if u.has_update),
+        },
+        ip_address=request.client.host if request.client else None,
     )
-    pending = result.scalar_one_or_none()
+    await db.commit()
+    return AgentFetchCertsResponse(updates=updates)
+
+
+@router.post(
+    "/report-certs",
+    response_model=AgentReportCertsResponse,
+    summary="上报当前已部署证书",
+    description="""
+Agent 上报当前本地路径上的证书清单，控制面据此维护每个路径的当前证书状态。
+
+需要 `X-Agent-Token` 认证。
+    """,
+)
+async def report_certs(
+    body: AgentReportCertsRequest,
+    x_agent_token: str | None = Header(None),
+    db: AsyncSession = Depends(get_db),
+):
+    agent = await _resolve_agent_by_token(x_agent_token, db)
+    recorded = 0
+
+    for item in body.certs:
+        cert, subject_cn, serial_hex = _parse_reported_cert(item.cert_pem)
+
+        ext_result = await db.execute(
+            select(ExternalCertificate).where(
+                ExternalCertificate.serial_hex == serial_hex,
+                ExternalCertificate.is_active.is_(True),
+            )
+        )
+        ext_cert = ext_result.scalar_one_or_none()
+
+        current_result = await db.execute(
+            select(Certificate).where(
+                Certificate.agent_id == agent.id,
+                Certificate.local_path == item.local_path,
+                Certificate.is_current.is_(True),
+                Certificate.revoked_at.is_(None),
+            )
+        )
+        current = current_result.scalar_one_or_none()
+
+        if current and current.serial_hex == serial_hex:
+            current.external_cert_id = ext_cert.id if ext_cert else None
+            current.subject_cn = subject_cn
+            current.not_before = cert.not_valid_before_utc
+            current.not_after = cert.not_valid_after_utc
+            current.cert_pem = item.cert_pem
+            current.chain_pem = item.chain_pem
+            db.add(current)
+            recorded += 1
+            continue
+
+        if current:
+            current.is_current = False
+            current.revoked_at = datetime.now(tz=timezone.utc)
+            db.add(current)
+
+        db.add(Certificate(
+            agent_id=agent.id,
+            external_cert_id=ext_cert.id if ext_cert else None,
+            local_path=item.local_path,
+            serial_hex=serial_hex,
+            subject_cn=subject_cn,
+            not_before=cert.not_valid_before_utc,
+            not_after=cert.not_valid_after_utc,
+            cert_pem=item.cert_pem,
+            chain_pem=item.chain_pem,
+            is_current=True,
+            revoked_at=None,
+        ))
+        recorded += 1
 
     await db.commit()
-    return HeartbeatResponse(
-        acknowledged=True,
-        pending_action="renew" if pending else None,
-    )
+    return AgentReportCertsResponse(recorded=recorded)

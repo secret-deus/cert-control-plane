@@ -5,13 +5,11 @@
 # 参数:
 #   -CpUrl         控制面板地址  (必填或交互输入)
 #   -AgentName     Agent 名称    (必填或交互输入)
-#   -Token         Bootstrap Token (必填或交互输入)
 #   -CaCertPath    CA 证书路径   (可选, 默认从项目 certs/ 拉取)
 # ============================================================
 param(
     [string]$CpUrl,
     [string]$AgentName,
-    [string]$Token,
     [string]$CaCertPath
 )
 
@@ -39,10 +37,7 @@ if (-not $CpUrl) {
     $CpUrl = Read-Host "请输入控制面板地址 (如 https://cp.example.com:8443)"
 }
 if (-not $AgentName) {
-    $AgentName = Read-Host "请输入 Agent 名称 (需与控制面板预注册一致)"
-}
-if (-not $Token) {
-    $Token = Read-Host "请输入 Bootstrap Token"
+    $AgentName = Read-Host "请输入 Agent 名称"
 }
 
 # ── 1. Preflight 检查 ──
@@ -107,13 +102,11 @@ if (-not (Test-Path $envFile)) {
     @"
 # cert-agent 配置 (自动生成)
 CERT_AGENT_CP_URL=$CpUrl
-CERT_AGENT_CA_CERT=$caCertDst
 CERT_AGENT_NAME=$AgentName
-CERT_AGENT_BOOTSTRAP_TOKEN=$Token
 CERT_AGENT_STATE_DIR=$StateDir
 CERT_AGENT_HEARTBEAT_INTERVAL=30
-CERT_AGENT_RENEW_BEFORE_DAYS=7
-CERT_AGENT_MAX_AUTH_FAILURES=3
+CERT_AGENT_POLL_INTERVAL=5
+# CERT_AGENT_CERT_TABLE=[{"local_path":"/etc/nginx/certs/api.crt"}]
 "@ | Out-File -FilePath $envFile -Encoding utf8
     Write-Host "  配置已写入 $envFile" -ForegroundColor Green
 } else {

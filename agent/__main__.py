@@ -3,9 +3,8 @@
 Usage:
     # Set environment variables (or write /etc/cert-agent/agent.conf):
     export CERT_AGENT_CP_URL=https://cp.example.com:8443
-    export CERT_AGENT_CA_CERT=/etc/cert-agent/ca.crt
     export CERT_AGENT_NAME=web-node-01
-    export CERT_AGENT_BOOTSTRAP_TOKEN=abc123...   # first-run only
+    export CERT_AGENT_CERT_TABLE='[{"local_path":"/etc/nginx/certs/api.crt"}]'
 
     # Run:
     python -m agent

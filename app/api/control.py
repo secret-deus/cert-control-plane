@@ -1,17 +1,34 @@
-"""Control API – admin-facing endpoints (port 443, X-Admin-API-Key auth)."""
+"""Control API – admin-facing endpoints (X-Admin-API-Key auth)."""
 
+import io
+import re
 import uuid
+import zipfile
 from datetime import datetime, timezone
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import func, select
+from cryptography import x509
+from cryptography.hazmat.primitives import serialization
+from cryptography.x509.oid import NameOID
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.audit import write_audit
-from app.core.security import generate_bootstrap_token, verify_admin_key
+from app.core.crypto import encrypt_key, decrypt_key
+from app.core.security import generate_agent_token, verify_admin_key
 from app.database import get_db
-from app.models import Agent, AgentStatus, AuditLog, Certificate, Rollout, RolloutStatus
+from app.models import (
+    Agent,
+    AgentCertAssignment,
+    AgentStatus,
+    AuditLog,
+    Certificate,
+    ExternalCertificate,
+    Rollout,
+    RolloutStatus,
+)
 from app.orchestrator.rollout import (
     create_rollout,
     pause_rollout,
@@ -19,22 +36,195 @@ from app.orchestrator.rollout import (
     rollback_rollout,
 )
 from app.schemas import (
+    AgentCertAssignRequest,
+    AgentCertAssignmentRead,
     AgentCreate,
-    AgentDetail,
     AgentRead,
     AuditLogRead,
     CertRead,
     CertSummary,
+    ExternalCertCreate,
+    ExternalCertRead,
+    ExternalCertSummary,
+    ExternalCertUploadResponse,
     PaginatedResponse,
     RolloutCreate,
     RolloutDetail,
     RolloutRead,
 )
+from app.config import get_settings
 
 router = APIRouter(
     prefix="/api/control",
     dependencies=[Depends(verify_admin_key)],
 )
+
+CERT_PEM_RE = re.compile(
+    r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----",
+    re.DOTALL,
+)
+PRIVATE_KEY_PEM_RE = re.compile(
+    r"-----BEGIN ([A-Z ]*PRIVATE KEY)-----.*?-----END \1-----",
+    re.DOTALL,
+)
+
+
+def _normalize_pem_block(text: str) -> str:
+    return text.strip() + "\n"
+
+
+def _parse_external_cert_metadata(cert_pem: str) -> tuple[x509.Certificate, str, str]:
+    try:
+        cert = x509.load_pem_x509_certificate(cert_pem.encode())
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid certificate PEM: {exc}")
+
+    cn_attrs = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
+    if not cn_attrs:
+        raise HTTPException(status_code=400, detail="Certificate missing Common Name")
+
+    return cert, cn_attrs[0].value, format(cert.serial_number, "x").lower()
+
+
+def _decode_archive_member(raw: bytes) -> str | None:
+    for encoding in ("utf-8", "ascii", "latin-1"):
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return None
+
+
+def _extract_archive_bundle(archive_bytes: bytes) -> tuple[str, str, str | None]:
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(archive_bytes))
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid zip archive: {exc}")
+
+    cert_candidates: list[tuple[str, str, x509.Certificate]] = []
+    key_candidates: list[tuple[str, object]] = []
+
+    for info in zf.infolist():
+        if info.is_dir():
+            continue
+        if info.file_size > 2 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail=f"Archive member too large: {info.filename}")
+
+        text = _decode_archive_member(zf.read(info))
+        if text is None or "-----BEGIN " not in text:
+            continue
+
+        for match in CERT_PEM_RE.finditer(text):
+            pem = _normalize_pem_block(match.group(0))
+            try:
+                cert = x509.load_pem_x509_certificate(pem.encode())
+            except Exception:
+                continue
+            cert_candidates.append((info.filename, pem, cert))
+
+        for match in PRIVATE_KEY_PEM_RE.finditer(text):
+            pem = _normalize_pem_block(match.group(0))
+            try:
+                key = serialization.load_pem_private_key(pem.encode(), password=None)
+            except Exception:
+                continue
+            key_candidates.append((pem, key))
+
+    if not cert_candidates:
+        raise HTTPException(status_code=400, detail="Archive does not contain a valid certificate PEM")
+    if not key_candidates:
+        raise HTTPException(status_code=400, detail="Archive does not contain a valid private key PEM")
+
+    selected_key_pem = key_candidates[0][0]
+    leaf_index = 0
+
+    for key_pem, key_obj in key_candidates:
+        key_public = key_obj.public_key().public_bytes(
+            serialization.Encoding.DER,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        for index, (_, _, cert) in enumerate(cert_candidates):
+            cert_public = cert.public_key().public_bytes(
+                serialization.Encoding.DER,
+                serialization.PublicFormat.SubjectPublicKeyInfo,
+            )
+            if cert_public == key_public:
+                selected_key_pem = key_pem
+                leaf_index = index
+                break
+        else:
+            continue
+        break
+
+    cert_pem = cert_candidates[leaf_index][1]
+    chain_blocks: list[str] = []
+    seen = {cert_pem}
+    for index, (_, pem, _) in enumerate(cert_candidates):
+        if index == leaf_index or pem in seen:
+            continue
+        seen.add(pem)
+        chain_blocks.append(pem)
+
+    return cert_pem, selected_key_pem, "".join(chain_blocks) or None
+
+
+async def _persist_external_cert(
+    *,
+    db: AsyncSession,
+    request: Request,
+    name: str,
+    description: str | None,
+    cert_pem: str,
+    key_pem: str,
+    chain_pem: str | None,
+    provider: str | None,
+    external_id: str | None,
+) -> ExternalCertUploadResponse:
+    settings = get_settings()
+    cert, subject_cn, serial_hex = _parse_external_cert_metadata(cert_pem)
+    key_encrypted = encrypt_key(key_pem.encode(), settings.ca_key_encryption_key)
+
+    external_cert = ExternalCertificate(
+        name=name,
+        description=description,
+        cert_pem=cert_pem,
+        key_pem_encrypted=key_encrypted,
+        chain_pem=chain_pem,
+        subject_cn=subject_cn,
+        serial_hex=serial_hex,
+        not_before=cert.not_valid_before_utc,
+        not_after=cert.not_valid_after_utc,
+        provider=provider,
+        external_id=external_id,
+    )
+    db.add(external_cert)
+    await db.flush()
+
+    await write_audit(
+        db,
+        action="external_cert_uploaded",
+        entity_type="external_certificate",
+        entity_id=external_cert.id,
+        actor=_actor(request),
+        details={
+            "name": external_cert.name,
+            "provider": provider,
+            "subject_cn": subject_cn,
+            "serial_hex": serial_hex,
+        },
+        ip_address=_ip(request),
+    )
+    await db.commit()
+    await db.refresh(external_cert)
+
+    return ExternalCertUploadResponse(
+        id=external_cert.id,
+        name=external_cert.name,
+        subject_cn=external_cert.subject_cn,
+        serial_hex=external_cert.serial_hex,
+        not_after=external_cert.not_after,
+        message="Certificate uploaded. Use /agents/{id}/assign-cert to assign to agents.",
+    )
 
 
 # ===========================================================================
@@ -44,20 +234,19 @@ router = APIRouter(
 
 @router.post(
     "/agents",
-    response_model=AgentDetail,
+    response_model=AgentRead,
     status_code=status.HTTP_201_CREATED,
     tags=["control / agents"],
-    summary="预注册 Agent",
+    summary="预创建 Agent 条目",
     description="""
-在控制平面预配置一个 Agent 条目，生成**一次性 bootstrap_token**。
+在控制平面预创建 Agent 条目（仅保留名称和描述）。
 
-**返回值中的 `bootstrap_token` 仅在此响应中出现一次**，后续查询不再返回。
-请将 token 安全传递给对应的 Agent（如通过密钥管理系统或首次部署脚本）。
+Agent 端启动后会自动调用 `POST /api/agent/register` 发送指纹并等待管理员审批。
 
-Agent 收到 token 后调用 `POST /api/agent/register` 完成注册，token 即作废。
+**注：** 也可以不预创建，Agent 首次注册时会自动创建条目。
     """,
     responses={
-        201: {"description": "Agent 预注册成功，返回一次性 bootstrap_token"},
+        201: {"description": "Agent 预创建成功"},
         409: {"description": "Agent 名称已存在"},
     },
 )
@@ -70,12 +259,10 @@ async def create_agent(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Agent name already exists")
 
-    token = generate_bootstrap_token()
     agent = Agent(
         name=body.name,
         description=body.description,
-        bootstrap_token=token,
-        bootstrap_token_created_at=datetime.now(tz=timezone.utc),
+        status=AgentStatus.PENDING_APPROVAL,
     )
     db.add(agent)
     await db.flush()
@@ -99,10 +286,10 @@ async def create_agent(
     response_model=PaginatedResponse[AgentRead],
     tags=["control / agents"],
     summary="Agent 列表",
-    description="分页查询所有 Agent，可按 `status` 过滤（pending/active/revoked/expired）。",
+    description="分页查询所有 Agent，可按 `status` 过滤。",
 )
 async def list_agents(
-    status_filter: AgentStatus | None = Query(None, alias="status", description="过滤 Agent 状态"),
+    status_filter: AgentStatus | None = Query(None, alias="status"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
@@ -134,11 +321,6 @@ async def get_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     status_code=status.HTTP_204_NO_CONTENT,
     tags=["control / agents"],
     summary="删除 Agent",
-    description="删除 Agent 及其所有关联证书（级联删除）。",
-    responses={
-        204: {"description": "删除成功"},
-        404: {"description": "Agent 不存在"},
-    },
 )
 async def delete_agent(
     agent_id: uuid.UUID,
@@ -161,31 +343,62 @@ async def delete_agent(
 
 
 @router.post(
-    "/agents/{agent_id}/reset-token",
-    response_model=AgentDetail,
+    "/agents/{agent_id}/approve",
+    response_model=AgentRead,
     tags=["control / agents"],
-    summary="重置 Bootstrap Token",
+    summary="审批通过 Agent 注册",
     description="""
-为指定 Agent 生成新的一次性 **bootstrap_token**，用于节点重新注册。
+审批通过等待中的 Agent，生成并颁发 `agent_token`。
 
-**适用场景：**
-- Agent 证书过期或被吊销后需要重新注册
-- Agent 节点重装系统，本地状态丢失
-- mTLS 认证持续失败，需要重新建立信任
-
-**操作效果：**
-1. 生成新的 bootstrap_token（旧 token 作废）
-2. 将 Agent 状态重置为 `pending`
-3. Agent 使用新 token 重新走注册流程
-
-**注意：** 重置后 Agent 需要重新配置 `CERT_AGENT_BOOTSTRAP_TOKEN` 并重启。
+Agent 凭 `agent_token` 在 `X-Agent-Token` 请求头中认证，拉取证书和发送心跳。
     """,
     responses={
-        200: {"description": "Token 重置成功，返回新 token（仅此一次）"},
+        200: {"description": "审批成功，agent_token 已生成"},
+        404: {"description": "Agent 不存在"},
+        409: {"description": "Agent 已激活"},
+    },
+)
+async def approve_agent(
+    agent_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    agent = await db.get(Agent, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    if agent.status == AgentStatus.ACTIVE:
+        raise HTTPException(status_code=409, detail="Agent is already active")
+
+    agent.agent_token = generate_agent_token()
+    agent.status = AgentStatus.ACTIVE
+    db.add(agent)
+
+    await write_audit(
+        db,
+        action="agent_approved",
+        entity_type="agent",
+        entity_id=agent_id,
+        actor=_actor(request),
+        details={"name": agent.name},
+        ip_address=_ip(request),
+    )
+    await db.commit()
+    await db.refresh(agent)
+    return agent
+
+
+@router.post(
+    "/agents/{agent_id}/reject",
+    response_model=AgentRead,
+    tags=["control / agents"],
+    summary="拒绝 Agent 注册",
+    description="将 pending_approval 状态的 Agent 标记为 revoked（拒绝注册）。",
+    responses={
+        200: {"description": "拒绝成功"},
         404: {"description": "Agent 不存在"},
     },
 )
-async def reset_agent_token(
+async def reject_agent(
     agent_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -194,18 +407,17 @@ async def reset_agent_token(
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    new_token = generate_bootstrap_token()
-    agent.bootstrap_token = new_token
-    agent.bootstrap_token_created_at = datetime.now(tz=timezone.utc)
-    agent.status = AgentStatus.PENDING
+    agent.status = AgentStatus.REVOKED
+    agent.agent_token = None
     db.add(agent)
 
     await write_audit(
         db,
-        action="agent_token_reset",
+        action="agent_rejected",
         entity_type="agent",
         entity_id=agent_id,
         actor=_actor(request),
+        details={"name": agent.name},
         ip_address=_ip(request),
     )
     await db.commit()
@@ -214,7 +426,304 @@ async def reset_agent_token(
 
 
 # ===========================================================================
-# Certificates
+# External Certificates
+# ===========================================================================
+
+
+@router.post(
+    "/external-certs",
+    response_model=ExternalCertUploadResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["control / external-certs"],
+    summary="上传外部证书",
+    description="""
+上传从第三方证书提供商（如阿里云、Let's Encrypt）购买的证书。
+
+- 私钥会被 Fernet 加密后存储
+- 证书会被解析提取 CN、序列号、有效期等信息
+- 上传后需要通过 `/agents/{id}/assign-cert` 分配给 Agent
+    """,
+)
+async def upload_external_cert(
+    body: ExternalCertCreate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    return await _persist_external_cert(
+        db=db,
+        request=request,
+        name=body.name,
+        description=body.description,
+        cert_pem=body.cert_pem,
+        key_pem=body.key_pem,
+        chain_pem=body.chain_pem,
+        provider=body.provider,
+        external_id=body.external_id,
+    )
+
+
+@router.post(
+    "/external-certs/upload-archive",
+    response_model=ExternalCertUploadResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["control / external-certs"],
+    summary="上传外部证书压缩包",
+    description="""
+直接上传第三方平台导出的 zip 压缩包。
+
+- 自动从压缩包中提取证书、公钥链和私钥
+- 自动用私钥匹配叶子证书
+- 私钥会被 Fernet 加密后存储
+    """,
+)
+async def upload_external_cert_archive(
+    request: Request,
+    archive: UploadFile = File(...),
+    name: str | None = Form(None),
+    description: str | None = Form(None),
+    provider: str | None = Form(None),
+    external_id: str | None = Form(None),
+    db: AsyncSession = Depends(get_db),
+):
+    archive_bytes = await archive.read()
+    if not archive_bytes:
+        raise HTTPException(status_code=400, detail="Archive file is empty")
+
+    cert_pem, key_pem, chain_pem = _extract_archive_bundle(archive_bytes)
+    resolved_name = (name or "").strip() or Path(archive.filename or "uploaded-cert.zip").stem
+
+    return await _persist_external_cert(
+        db=db,
+        request=request,
+        name=resolved_name,
+        description=description,
+        cert_pem=cert_pem,
+        key_pem=key_pem,
+        chain_pem=chain_pem,
+        provider=provider,
+        external_id=external_id,
+    )
+
+
+@router.get(
+    "/external-certs",
+    response_model=PaginatedResponse[ExternalCertSummary],
+    tags=["control / external-certs"],
+    summary="列出外部证书",
+)
+async def list_external_certs(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: AsyncSession = Depends(get_db),
+):
+    total_result = await db.execute(select(func.count()).select_from(ExternalCertificate))
+    total = total_result.scalar()
+
+    result = await db.execute(
+        select(ExternalCertificate)
+        .order_by(ExternalCertificate.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    items = list(result.scalars().all())
+
+    return PaginatedResponse(items=items, total=total, skip=skip, limit=limit)
+
+
+@router.get(
+    "/external-certs/{cert_id}",
+    response_model=ExternalCertRead,
+    tags=["control / external-certs"],
+    summary="获取外部证书详情",
+)
+async def get_external_cert(cert_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    cert = await db.get(ExternalCertificate, cert_id)
+    if not cert:
+        raise HTTPException(status_code=404, detail="External certificate not found")
+    return cert
+
+
+@router.delete(
+    "/external-certs/{cert_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["control / external-certs"],
+    summary="删除外部证书",
+)
+async def delete_external_cert(
+    cert_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    cert = await db.get(ExternalCertificate, cert_id)
+    if not cert:
+        raise HTTPException(status_code=404, detail="External certificate not found")
+
+    assignment_count = (
+        await db.execute(
+            select(func.count())
+            .select_from(AgentCertAssignment)
+            .where(AgentCertAssignment.external_cert_id == cert_id)
+        )
+    ).scalar_one()
+
+    await db.execute(
+        update(Certificate)
+        .where(Certificate.external_cert_id == cert_id)
+        .values(external_cert_id=None)
+    )
+    await db.execute(
+        delete(AgentCertAssignment).where(AgentCertAssignment.external_cert_id == cert_id)
+    )
+
+    await write_audit(
+        db,
+        action="external_cert_deleted",
+        entity_type="external_certificate",
+        entity_id=cert_id,
+        actor=_actor(request),
+        details={
+            "name": cert.name,
+            "subject_cn": cert.subject_cn,
+            "assignments_removed": assignment_count,
+        },
+        ip_address=_ip(request),
+    )
+    await db.delete(cert)
+    await db.commit()
+
+
+# ===========================================================================
+# Agent Cert Assignments
+# ===========================================================================
+
+
+@router.post(
+    "/agents/{agent_id}/assign-cert",
+    response_model=AgentCertAssignmentRead,
+    status_code=status.HTTP_201_CREATED,
+    tags=["control / external-certs"],
+    summary="为 Agent 分配证书",
+    description="""
+将外部证书分配给指定 Agent 的某个本地路径。
+
+Agent 下次调用 `/fetch-certs` 时，会对比该路径的证书有效期并拉取更新。
+
+**示例：**
+```json
+{
+  "external_cert_id": "uuid-of-cert",
+  "local_path": "/etc/nginx/ssl/api.example.com.crt"
+}
+```
+    """,
+)
+async def assign_cert_to_agent(
+    agent_id: uuid.UUID,
+    body: AgentCertAssignRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    agent = await db.get(Agent, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    ext_cert = await db.get(ExternalCertificate, body.external_cert_id)
+    if not ext_cert:
+        raise HTTPException(status_code=404, detail="External certificate not found")
+
+    # Upsert: if assignment for this agent+path already exists, update the cert
+    existing_result = await db.execute(
+        select(AgentCertAssignment).where(
+            AgentCertAssignment.agent_id == agent_id,
+            AgentCertAssignment.local_path == body.local_path,
+        )
+    )
+    existing = existing_result.scalar_one_or_none()
+
+    if existing:
+        existing.external_cert_id = body.external_cert_id
+        db.add(existing)
+        assignment = existing
+    else:
+        assignment = AgentCertAssignment(
+            agent_id=agent_id,
+            external_cert_id=body.external_cert_id,
+            local_path=body.local_path,
+        )
+        db.add(assignment)
+
+    await db.flush()
+
+    await write_audit(
+        db,
+        action="cert_assigned",
+        entity_type="agent_cert_assignment",
+        entity_id=assignment.id,
+        actor=_actor(request),
+        details={
+            "agent_name": agent.name,
+            "local_path": body.local_path,
+            "external_cert_name": ext_cert.name,
+        },
+        ip_address=_ip(request),
+    )
+    await db.commit()
+    await db.refresh(assignment)
+    return assignment
+
+
+@router.get(
+    "/agents/{agent_id}/assignments",
+    response_model=list[AgentCertAssignmentRead],
+    tags=["control / external-certs"],
+    summary="查看 Agent 的证书分配",
+)
+async def list_agent_assignments(
+    agent_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    agent = await db.get(Agent, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    result = await db.execute(
+        select(AgentCertAssignment)
+        .where(AgentCertAssignment.agent_id == agent_id)
+        .order_by(AgentCertAssignment.created_at.desc())
+    )
+    return list(result.scalars().all())
+
+
+@router.delete(
+    "/agents/{agent_id}/assignments/{assignment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["control / external-certs"],
+    summary="删除证书分配",
+)
+async def delete_assignment(
+    agent_id: uuid.UUID,
+    assignment_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    assignment = await db.get(AgentCertAssignment, assignment_id)
+    if not assignment or assignment.agent_id != agent_id:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+
+    await write_audit(
+        db,
+        action="cert_assignment_deleted",
+        entity_type="agent_cert_assignment",
+        entity_id=assignment_id,
+        actor=_actor(request),
+        ip_address=_ip(request),
+    )
+    await db.delete(assignment)
+    await db.commit()
+
+
+# ===========================================================================
+# Certificates (audit records)
 # ===========================================================================
 
 
@@ -223,14 +732,6 @@ async def reset_agent_token(
     response_model=list[CertSummary],
     tags=["control / certificates"],
     summary="Agent 证书历史",
-    description="""
-查询指定 Agent 的所有证书摘要（按时间倒序，不含 PEM 正文）。
-
-使用 `GET /certs/{cert_id}` 获取单张证书的完整 PEM。
-
-**私钥字段不存在于任何响应中**——`key_pem_encrypted` 字段在数据库中加密存储，
-此接口及所有控制侧接口均不返回私钥。私钥只能由 Agent 通过 mTLS 端口（8443）下载。
-    """,
     responses={404: {"description": "Agent 不存在"}},
 )
 async def list_agent_certs(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
@@ -256,50 +757,6 @@ async def get_cert(cert_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     return cert
 
 
-@router.post(
-    "/certs/{cert_id}/revoke",
-    response_model=CertRead,
-    tags=["control / certificates"],
-    summary="撤销证书",
-    description="""
-将指定证书标记为已撤销（设置 `revoked_at`，`is_current` 置为 `false`）。
-
-撤销后 Agent 下次心跳会收到 `pending_action: "renew"` 通知（如有 Rollout item）。
-目前不生成 CRL / OCSP，需要结合 Rollout 完成实际轮换。
-    """,
-    responses={
-        200: {"description": "撤销成功"},
-        404: {"description": "证书不存在"},
-        409: {"description": "证书已撤销"},
-    },
-)
-async def revoke_cert(
-    cert_id: uuid.UUID,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-):
-    from app.registry.store import registry
-
-    cert = await db.get(Certificate, cert_id)
-    if not cert:
-        raise HTTPException(status_code=404, detail="Certificate not found")
-    if cert.revoked_at:
-        raise HTTPException(status_code=409, detail="Certificate already revoked")
-
-    cert = await registry.revoke(db, cert)
-    await write_audit(
-        db,
-        action="cert_revoked",
-        entity_type="certificate",
-        entity_id=cert_id,
-        actor=_actor(request),
-        ip_address=_ip(request),
-    )
-    await db.commit()
-    await db.refresh(cert)
-    return cert
-
-
 # ===========================================================================
 # Rollouts
 # ===========================================================================
@@ -311,19 +768,6 @@ async def revoke_cert(
     status_code=status.HTTP_201_CREATED,
     tags=["control / rollouts"],
     summary="创建 Rollout",
-    description="""
-创建一次批量证书轮换任务，系统自动按 `target_filter` 匹配 Agent 并分批。
-
-**`target_filter` 示例：**
-```json
-{"name_prefix": "prod-"}         // 匹配所有名称以 prod- 开头的 Agent
-{"agent_ids": ["uuid1","uuid2"]} // 指定 Agent
-null                              // 所有 active Agent
-```
-
-创建后状态为 `pending`，需调用 `POST /rollouts/{id}/start` 启动。
-    """,
-    responses={201: {"description": "Rollout 创建成功，状态为 pending"}},
 )
 async def create_rollout_endpoint(
     body: RolloutCreate,
@@ -357,7 +801,6 @@ async def create_rollout_endpoint(
     response_model=PaginatedResponse[RolloutRead],
     tags=["control / rollouts"],
     summary="Rollout 列表",
-    description="分页查询，可按 `status` 过滤（pending/running/paused/completed/failed/rolled_back）。",
 )
 async def list_rollouts(
     status_filter: RolloutStatus | None = Query(None, alias="status"),
@@ -377,7 +820,7 @@ async def list_rollouts(
     "/rollouts/{rollout_id}",
     response_model=RolloutDetail,
     tags=["control / rollouts"],
-    summary="Rollout 详情（含每个 Agent 的执行状态）",
+    summary="Rollout 详情",
     responses={404: {"description": "Rollout 不存在"}},
 )
 async def get_rollout(rollout_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
@@ -397,12 +840,6 @@ async def get_rollout(rollout_id: uuid.UUID, db: AsyncSession = Depends(get_db))
     response_model=RolloutRead,
     tags=["control / rollouts"],
     summary="启动 Rollout",
-    description="将 Rollout 状态从 `pending` 切换为 `running`，Orchestrator 开始按批次推进。",
-    responses={
-        200: {"description": "启动成功"},
-        404: {"description": "Rollout 不存在"},
-        409: {"description": "Rollout 不在 pending 状态"},
-    },
 )
 async def start_rollout(
     rollout_id: uuid.UUID,
@@ -436,15 +873,6 @@ async def start_rollout(
     response_model=RolloutRead,
     tags=["control / rollouts"],
     summary="暂停 Rollout",
-    description="""
-暂停正在运行的 Rollout。Orchestrator 停止推进下一批次，已在执行的批次不受影响。
-
-可通过 `POST .../resume` 恢复，或 `POST .../rollback` 回滚。
-    """,
-    responses={
-        200: {"description": "暂停成功"},
-        409: {"description": "Rollout 不在 running 状态"},
-    },
 )
 async def pause_rollout_endpoint(
     rollout_id: uuid.UUID,
@@ -468,11 +896,6 @@ async def pause_rollout_endpoint(
     response_model=RolloutRead,
     tags=["control / rollouts"],
     summary="恢复 Rollout",
-    description="将已暂停的 Rollout 恢复为 `running`，Orchestrator 继续从下一批次推进。",
-    responses={
-        200: {"description": "恢复成功"},
-        409: {"description": "Rollout 不在 paused 状态"},
-    },
 )
 async def resume_rollout_endpoint(
     rollout_id: uuid.UUID,
@@ -496,21 +919,6 @@ async def resume_rollout_endpoint(
     response_model=RolloutRead,
     tags=["control / rollouts"],
     summary="回滚 Rollout",
-    description="""
-将所有已完成的 Rollout item 恢复到轮换**之前**的证书。
-
-**操作内容：**
-- 对每个 `completed` 状态的 item，将 Agent 的 `is_current` 恢复为 `previous_cert_id` 指向的证书
-- 更新 Agent 的 `fingerprint`
-- 所有 item 状态置为 `rolled_back`
-- Rollout 状态置为 `rolled_back`
-
-**支持的前置状态：** `paused` / `running` / `failed` / `completed`
-    """,
-    responses={
-        200: {"description": "回滚成功"},
-        409: {"description": "当前状态不支持回滚"},
-    },
 )
 async def rollback_rollout_endpoint(
     rollout_id: uuid.UUID,
@@ -542,21 +950,19 @@ async def rollback_rollout_endpoint(
     description="""
 查询所有写操作的不可变审计记录（按时间倒序）。
 
-**可过滤字段：**
-- `entity_type`：`agent` / `certificate` / `rollout`
-- `entity_id`：具体资源的 UUID
-
 **覆盖的操作：**
-`agent_created` / `agent_registered` / `agent_deleted` / `agent_token_reset` /
-`cert_renewed` / `cert_revoked` / `cert_rolled_back` /
+`agent_created` / `agent_registered` / `agent_approved` / `agent_rejected` / `agent_deleted` /
+`cert_assigned` / `cert_assignment_deleted` /
+`external_cert_uploaded` / `external_cert_deleted` /
+`agent_fetch_certs` /
 `rollout_created` / `rollout_started` / `rollout_batch_started` /
 `rollout_paused` / `rollout_resumed` /
-`rollout_completed` / `rollout_failed` / `rollout_rolled_back`
+`rollout_completed` / `rollout_failed` / `rollout_rolled_back` / `cert_rolled_back`
     """,
 )
 async def list_audit_logs(
-    entity_type: str | None = Query(None, description="实体类型过滤"),
-    entity_id: str | None = Query(None, description="实体 UUID 过滤"),
+    entity_type: str | None = Query(None),
+    entity_id: str | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
@@ -577,12 +983,6 @@ async def list_audit_logs(
 
 
 def _actor(request: Request) -> str:
-    """Derive actor identity from the authenticated admin key.
-
-    Uses the first 8 hex chars of the API key as a stable, non-secret
-    identifier so audit logs can distinguish multiple admin keys without
-    exposing the full key.
-    """
     api_key = request.headers.get("X-Admin-API-Key", "")
     if api_key and len(api_key) >= 8:
         return f"admin:{api_key[:8]}"

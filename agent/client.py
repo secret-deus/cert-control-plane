@@ -1,9 +1,10 @@
 """HTTP client for the control plane Agent API.
 
-Uses httpx with mTLS (client cert + CA verification).
+Uses httpx without mTLS – authentication is via X-Agent-Token header.
 """
 
 import logging
+from datetime import datetime
 
 import httpx
 
@@ -19,38 +20,42 @@ class ControlPlaneClient:
         self._config = config
         self._base = config.control_plane_url.rstrip("/")
 
-    # ------------------------------------------------------------------
-    # Internal: build httpx client
-    # ------------------------------------------------------------------
+    def _headers(self) -> dict:
+        """Build auth headers. Empty if no token (registration phase)."""
+        if self._config.agent_token:
+            return {"X-Agent-Token": self._config.agent_token}
+        return {}
 
-    def _make_client(self, *, use_client_cert: bool = True) -> httpx.Client:
-        """Create a synchronous httpx client.
-
-        use_client_cert=True  → mTLS (for bundle/renew/heartbeat)
-        use_client_cert=False → no client cert (for bootstrap register)
-        """
-        kwargs: dict = {
-            "verify": self._config.ca_cert_path,
-            "timeout": 30.0,
-        }
-        if use_client_cert and self._config.cert_path.exists():
-            kwargs["cert"] = (
-                str(self._config.cert_path),
-                str(self._config.key_path),
-            )
-        return httpx.Client(**kwargs)
+    def _make_client(self) -> httpx.Client:
+        """Create synchronous httpx client (no mTLS, plain HTTPS or HTTP)."""
+        return httpx.Client(timeout=30.0)
 
     # ------------------------------------------------------------------
-    # POST /api/agent/register
+    # POST /api/agent/register  (TOFU)
     # ------------------------------------------------------------------
 
-    def register(self, csr_pem: str) -> dict:
-        """Bootstrap registration. Returns {cert_pem, chain_pem, agent_id}."""
+    def register(self, fingerprint: str) -> dict:
+        """Submit TOFU registration. Returns {status, agent_id, agent_token?, message}."""
         url = f"{self._base}/api/agent/register"
-        with self._make_client(use_client_cert=False) as client:
+        with self._make_client() as client:
             resp = client.post(url, json={
-                "bootstrap_token": self._config.bootstrap_token,
-                "csr_pem": csr_pem,
+                "name": self._config.agent_name,
+                "fingerprint": fingerprint,
+            })
+            resp.raise_for_status()
+            return resp.json()
+
+    # ------------------------------------------------------------------
+    # GET /api/agent/register/status  (approval polling)
+    # ------------------------------------------------------------------
+
+    def check_registration_status(self, agent_id: str, fingerprint: str) -> dict:
+        """Poll for admin approval. Returns {status, agent_token?}."""
+        url = f"{self._base}/api/agent/register/status"
+        with self._make_client() as client:
+            resp = client.get(url, params={
+                "agent_id": agent_id,
+                "fingerprint": fingerprint,
             })
             resp.raise_for_status()
             return resp.json()
@@ -60,33 +65,52 @@ class ControlPlaneClient:
     # ------------------------------------------------------------------
 
     def heartbeat(self) -> dict:
-        """Send heartbeat. Returns {acknowledged, pending_action}."""
+        """Send heartbeat. Returns {acknowledged}."""
         url = f"{self._base}/api/agent/heartbeat"
         with self._make_client() as client:
-            resp = client.post(url, json={"status": "ok"})
+            resp = client.post(
+                url,
+                json={"status": "ok"},
+                headers=self._headers(),
+            )
             resp.raise_for_status()
             return resp.json()
 
     # ------------------------------------------------------------------
-    # POST /api/agent/renew
+    # POST /api/agent/fetch-certs  (batch)
     # ------------------------------------------------------------------
 
-    def renew(self, csr_pem: str) -> dict:
-        """Submit a new CSR for cert renewal. Returns {cert_pem, chain_pem, serial_hex}."""
-        url = f"{self._base}/api/agent/renew"
+    def fetch_certs(self, cert_checks: list[dict]) -> dict:
+        """Batch fetch latest certs from control plane.
+
+        Args:
+            cert_checks: list of {local_path: str, current_not_after: str | None}
+
+        Returns:
+            {updates: [{local_path, has_update, cert_pem?, key_pem?, chain_pem?, not_after?}]}
+        """
+        url = f"{self._base}/api/agent/fetch-certs"
         with self._make_client() as client:
-            resp = client.post(url, json={"csr_pem": csr_pem})
+            resp = client.post(
+                url,
+                json={"certs": cert_checks},
+                headers=self._headers(),
+            )
             resp.raise_for_status()
             return resp.json()
 
     # ------------------------------------------------------------------
-    # GET /api/agent/bundle
+    # POST /api/agent/report-certs
     # ------------------------------------------------------------------
 
-    def download_bundle(self) -> str:
-        """Download the current PEM bundle."""
-        url = f"{self._base}/api/agent/bundle"
+    def report_certs(self, cert_inventory: list[dict]) -> dict:
+        """Report current locally deployed certificates."""
+        url = f"{self._base}/api/agent/report-certs"
         with self._make_client() as client:
-            resp = client.get(url)
+            resp = client.post(
+                url,
+                json={"certs": cert_inventory},
+                headers=self._headers(),
+            )
             resp.raise_for_status()
-            return resp.text
+            return resp.json()

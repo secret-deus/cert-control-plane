@@ -4,8 +4,7 @@
 # 用法: sudo bash agent/scripts/install.sh
 #   或: sudo bash agent/scripts/install.sh \
 #         --cp-url https://cp.example.com:8443 \
-#         --name web-node-01 \
-#         --token <bootstrap_token>
+#         --name web-node-01
 # ============================================================
 set -euo pipefail
 
@@ -22,14 +21,12 @@ NGINX_CERT_DIR="/etc/nginx/certs"
 # ── 解析参数 ──
 CP_URL=""
 AGENT_NAME=""
-BOOTSTRAP_TOKEN=""
 CA_CERT_SRC=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         --cp-url)     CP_URL="$2"; shift 2 ;;
         --name)       AGENT_NAME="$2"; shift 2 ;;
-        --token)      BOOTSTRAP_TOKEN="$2"; shift 2 ;;
         --ca-cert)    CA_CERT_SRC="$2"; shift 2 ;;
         *)            shift ;;
     esac
@@ -48,10 +45,7 @@ if [ -z "$CP_URL" ]; then
     read -rp "请输入控制面板地址 (如 https://cp.example.com:8443): " CP_URL
 fi
 if [ -z "$AGENT_NAME" ]; then
-    read -rp "请输入 Agent 名称 (需与控制面板预注册一致): " AGENT_NAME
-fi
-if [ -z "$BOOTSTRAP_TOKEN" ]; then
-    read -rp "请输入 Bootstrap Token: " BOOTSTRAP_TOKEN
+    read -rp "请输入 Agent 名称: " AGENT_NAME
 fi
 
 # ── preflight checks ──
@@ -121,15 +115,13 @@ if [ ! -f "$CONFIG_DIR/agent.env" ]; then
     cat > "$CONFIG_DIR/agent.env" <<EOF
 # cert-agent 配置 (自动生成)
 CERT_AGENT_CP_URL=$CP_URL
-CERT_AGENT_CA_CERT=$CONFIG_DIR/ca.crt
 CERT_AGENT_NAME=$AGENT_NAME
-CERT_AGENT_BOOTSTRAP_TOKEN=$BOOTSTRAP_TOKEN
 CERT_AGENT_STATE_DIR=$STATE_DIR
 CERT_AGENT_NGINX_CERT_DIR=$NGINX_CERT_DIR
 CERT_AGENT_NGINX_RELOAD_CMD=nginx -s reload
 CERT_AGENT_HEARTBEAT_INTERVAL=30
-CERT_AGENT_RENEW_BEFORE_DAYS=7
-CERT_AGENT_MAX_AUTH_FAILURES=3
+CERT_AGENT_POLL_INTERVAL=5
+# CERT_AGENT_CERT_TABLE=[{"local_path":"/etc/nginx/certs/api.crt"}]
 EOF
     chmod 600 "$CONFIG_DIR/agent.env"
     echo "  配置已写入 $CONFIG_DIR/agent.env"

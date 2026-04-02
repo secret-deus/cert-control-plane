@@ -38,12 +38,8 @@ if [ ! -f "$ENV_FILE" ]; then
     else
         cat > "$ENV_FILE" <<'EOF'
 DATABASE_URL=sqlite+aiosqlite:///./certcp.db
-CA_CERT_PATH=./certs/ca.crt
-CA_KEY_PATH=./certs/ca.key
-STRICT_CA_STARTUP=true
-CERT_VALIDITY_DAYS=365
-BOOTSTRAP_TOKEN_EXPIRE_HOURS=24
 ROLLOUT_INTERVAL_SECONDS=30
+DEFAULT_BATCH_SIZE=10
 ROLLOUT_ITEM_TIMEOUT_MINUTES=10
 EOF
     fi

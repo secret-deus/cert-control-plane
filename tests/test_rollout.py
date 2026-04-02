@@ -91,6 +91,8 @@ class MockDBBuilder:
 
     def __init__(self):
         self._session = AsyncMock()
+        self._session.add = MagicMock()
+        self._session.flush = AsyncMock()
         self._execute_results = []
 
     def add_scalars_all(self, items: list) -> "MockDBBuilder":
@@ -137,8 +139,8 @@ class TestCreateRollout:
         session = db.build()
 
         # Mock registry.get_current_cert
-        with patch("app.orchestrator.rollout.registry") as mock_reg:
-            mock_reg.get_current_cert = AsyncMock(return_value=mock_cert)
+        with patch("app.orchestrator.rollout.get_current_cert") as mock_get_current_cert:
+            mock_get_current_cert.return_value = mock_cert
             rollout = await create_rollout(
                 session,
                 name="test",
@@ -291,6 +293,8 @@ class TestRollback:
         agent = _make_agent("test-agent")
 
         session = AsyncMock()
+        session.add = MagicMock()
+        session.flush = AsyncMock()
 
         # First execute returns items, subsequent executes (updates) return default
         first_call = True
@@ -310,9 +314,7 @@ class TestRollback:
             agent_id: agent,
         }.get(pk))
 
-        with patch("app.orchestrator.rollout.write_audit", new_callable=AsyncMock), \
-             patch("app.orchestrator.rollout.CertManager") as mock_cm:
-            mock_cm.fingerprint.return_value = "mock-fingerprint"
+        with patch("app.orchestrator.rollout.write_audit", new_callable=AsyncMock):
             result = await rollback_rollout(session, rollout, actor="admin")
 
         assert result.status == RolloutStatus.ROLLED_BACK
@@ -345,6 +347,7 @@ class TestPauseResume:
     async def test_pause_resume_cycle(self):
         rollout = _make_rollout(status=RolloutStatus.RUNNING)
         db = AsyncMock()
+        db.add = MagicMock()
 
         with patch("app.orchestrator.rollout.write_audit", new_callable=AsyncMock):
             paused = await pause_rollout(db, rollout, actor="admin")
