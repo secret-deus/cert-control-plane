@@ -4,6 +4,37 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/zh-CN/).
 
+## [0.2.0] - 2026-04-08
+
+### Added
+- **E2E Testing**: Playwright 测试框架，覆盖登录、Agent、证书、Rollout 页面
+- **Structured Logging**: JSON 格式日志支持，可配置日志级别和格式
+- **Alerting System**: 完整的告警配置文档，支持 ELK、Loki、Prometheus 集成
+- **Performance Testing**: Locust 性能测试框架，包含心跳和证书同步测试
+- **Security Scanning**: GitHub Actions 安全扫描 workflow（pip-audit, npm audit, Trivy, CodeQL, Gitleaks）
+- **Rust Agent**: 完整的 README 文档、构建脚本、发布 workflow
+- **Go Agent**: 二进制构建和发布支持
+
+### Documentation
+- **Production Deployment**: 生产环境部署指南（架构、配置、运维、故障排查）
+- **Agent Comparison**: Python vs Go vs Rust Agent 详细对比文档
+- **Security Audit Checklist**: 完整的安全审计检查清单
+- **Pre-production Checklist**: 预生产环境部署检查清单
+- **Alerting Guide**: 监控告警配置指南
+
+### Fixed
+- 修复 `tests/test_rollout.py` 中的 RuntimeWarning（AsyncMock 误用于同步方法）
+- 所有测试现在通过，无 warnings
+
+### Changed
+- 项目里程碑 M3 完成，进入 M4 准备阶段
+- CI 新增 E2E 测试和安全扫描
+- Agent 发布流程自动化
+
+### Security
+- 添加安全扫描自动化（依赖漏洞、容器漏洞、代码安全）
+- 完善安全审计流程和检查清单
+
 ## [0.1.1] - 2026-03-11
 
 ### Security

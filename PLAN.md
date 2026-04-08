@@ -215,12 +215,15 @@ python3 -m pytest tests/ -v --cov=app --cov=agent
 - [x] 完成结构化日志和告警配置
 - [x] 完成 Rust Agent 文档和发布流程
 
-### M4 准备工作 (进行中)
+### M4 准备工作 (基本完成)
 
 - [x] 性能测试框架（Locust 脚本）
 - [x] 安全审计检查清单
+- [x] 安全扫描 CI workflow
+- [x] 预生产环境部署检查清单
+- [x] CHANGELOG 更新
+- [x] 版本发布说明模板
 - [ ] 性能基准测试执行
-- [ ] 依赖漏洞扫描
 - [ ] 预生产环境部署验证
 
 ---
@@ -323,6 +326,12 @@ python3 -m pytest tests/ -v --cov=app --cov=agent
 - 编写 Agent 对比文档
 - Sprint 3 全部完成
 - 里程碑 M3 完成
+- M4 准备工作基本完成
+- 性能测试框架
+- 安全审计检查清单
+- 安全扫描 CI workflow
+- 预生产环境部署检查清单
+- CHANGELOG 和发布说明模板
 
 ### 2026-03-31
 

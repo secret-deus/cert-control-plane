@@ -1,0 +1,182 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    - cron: '0 6 * * 1'  # 每周一早上 6 点
+  workflow_dispatch:
+
+jobs:
+  python-dependencies:
+    name: Python Dependency Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev]"
+          pip install pip-audit
+
+      - name: Run pip-audit
+        run: |
+          pip-audit --format=github --output=python-audit-report.md || true
+
+      - name: Upload audit report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: python-audit-report
+          path: python-audit-report.md
+
+  npm-dependencies:
+    name: NPM Dependency Scan
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit
+        run: |
+          npm audit --json > npm-audit-report.json || true
+
+      - name: Upload audit report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: npm-audit-report
+          path: frontend/npm-audit-report.json
+
+  container-scan:
+    name: Container Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build -t cert-control-plane:scan .
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'cert-control-plane:scan'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ['python', 'javascript']
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{matrix.language}}"
+
+  secrets-scan:
+    name: Secrets Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for proper scanning
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: 'high'
+
+  security-summary:
+    name: Security Summary
+    needs: [python-dependencies, npm-dependencies, codeql, secrets-scan]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check results
+        run: |
+          echo "## Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Scan Type | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.python-dependencies.result }}" == "success" ]; then
+            echo "| Python Dependencies | ✅ Pass |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Python Dependencies | ⚠️ Issues found |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ needs.npm-dependencies.result }}" == "success" ]; then
+            echo "| NPM Dependencies | ✅ Pass |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| NPM Dependencies | ⚠️ Issues found |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ needs.codeql.result }}" == "success" ]; then
+            echo "| CodeQL Analysis | ✅ Pass |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| CodeQL Analysis | ⚠️ Issues found |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ needs.secrets-scan.result }}" == "success" ]; then
+            echo "| Secrets Scan | ✅ Pass |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Secrets Scan | ⚠️ Issues found |" >> $GITHUB_STEP_SUMMARY
+          fi
