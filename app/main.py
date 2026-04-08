@@ -52,27 +52,24 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Cert Control Plane",
         description="""
-## 外部证书分发控制平面
+## 证书分发管理后端
 
-当前版本采用外部证书分发模式：
-
-- 运维侧上传外部证书和私钥
-- 控制平面加密存储私钥，并维护 `agent + local_path` 分配关系
-- Agent 注册并经管理员审批后，按心跳节奏调用 `fetch-certs` 拉取更新
+通过两组 API 管理 Agent 证书的全生命周期（纯分发模式，无 CA 签发）：
 
 ### Agent API
-- TOFU 注册与审批轮询
-- 心跳上报
-- 批量比较本地证书有效期并拉取更新
+- Agent TOFU 注册（首次注册发送指纹，等待管理员审批）
+- 审批后获得 Agent Token，凭 token 拉取证书和发送心跳
+- 批量拉取：遍历本地证书表，与平台对比有效期，按需更新
 
-### Control API
-- Agent 管理（创建、审批、拒绝、删除）
-- 外部证书管理与分配
-- Agent 证书记录、Rollout、审计日志
+### Control API（Admin API Key 认证）
+- 管理 Agent 注册信息（查看/审批/拒绝）
+- 上传外部证书（阿里云等）
+- 为 Agent 分配证书（指定 local_path → external_cert 映射）
+- 审计日志查询
 
 ### 认证方式
-- **Agent API**：`X-Agent-Token`
-- **Control API**：`X-Admin-API-Key`
+- **Agent API**：`X-Agent-Token` 请求头（审批通过后颁发）
+- **Control API**：请求头携带 `X-Admin-API-Key`
         """,
         version="0.2.0",
         lifespan=lifespan,
@@ -81,7 +78,7 @@ def create_app() -> FastAPI:
         openapi_tags=[
             {
                 "name": "agent",
-                "description": "**Agent API** – TOFU 注册、审批轮询、心跳、批量拉取证书。",
+                "description": "**Agent API** – Agent 注册、证书拉取、心跳。",
             },
             {
                 "name": "control / agents",
@@ -89,19 +86,11 @@ def create_app() -> FastAPI:
             },
             {
                 "name": "control / external-certs",
-                "description": "**Control API** – 外部证书与分配管理。",
-            },
-            {
-                "name": "control / certificates",
-                "description": "**Control API** – Agent 证书审计记录查询。",
+                "description": "**Control API** – 外部证书管理：上传、查询、分配给 Agent。",
             },
             {
                 "name": "control / rollouts",
-                "description": "**Control API** – Rollout 批量编排：创建、启动、暂停、恢复、回滚。",
-            },
-            {
-                "name": "control / dashboard",
-                "description": "**Control API** – Dashboard 汇总、健康状态、到期告警。",
+                "description": "**Control API** – Rollout 批量证书轮换：创建、启动、暂停、恢复、回滚。",
             },
             {
                 "name": "control / audit",
@@ -134,14 +123,6 @@ def create_app() -> FastAPI:
         if os.path.isdir(assets_dir):
             app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
-    @app.get("/healthz", tags=["health"], summary="健康检查")
-    async def healthz():
-        db_ok = await check_db()
-        return {
-            "status": "ok" if db_ok else "degraded",
-            "db": "connected" if db_ok else "unreachable",
-        }
-
     # SPA catch-all: serve index.html for all non-API routes
     @app.get("/{path:path}", response_class=HTMLResponse, include_in_schema=False)
     async def spa_fallback(path: str):
@@ -156,6 +137,14 @@ def create_app() -> FastAPI:
             content="Dashboard not built. Run 'npm run build' in frontend/ or use 'npm run dev' for development.",
             status_code=200,
         )
+
+    @app.get("/healthz", tags=["health"], summary="健康检查")
+    async def healthz():
+        db_ok = await check_db()
+        return {
+            "status": "ok" if db_ok else "degraded",
+            "db": "connected" if db_ok else "unreachable",
+        }
 
     return app
 

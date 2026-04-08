@@ -1,17 +1,10 @@
 """Control API – admin-facing endpoints (X-Admin-API-Key auth)."""
 
-import io
-import re
 import uuid
-import zipfile
 from datetime import datetime, timezone
-from pathlib import Path
 
-from cryptography import x509
-from cryptography.hazmat.primitives import serialization
-from cryptography.x509.oid import NameOID
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
-from sqlalchemy import delete, func, select, update
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -58,173 +51,6 @@ router = APIRouter(
     prefix="/api/control",
     dependencies=[Depends(verify_admin_key)],
 )
-
-CERT_PEM_RE = re.compile(
-    r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----",
-    re.DOTALL,
-)
-PRIVATE_KEY_PEM_RE = re.compile(
-    r"-----BEGIN ([A-Z ]*PRIVATE KEY)-----.*?-----END \1-----",
-    re.DOTALL,
-)
-
-
-def _normalize_pem_block(text: str) -> str:
-    return text.strip() + "\n"
-
-
-def _parse_external_cert_metadata(cert_pem: str) -> tuple[x509.Certificate, str, str]:
-    try:
-        cert = x509.load_pem_x509_certificate(cert_pem.encode())
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Invalid certificate PEM: {exc}")
-
-    cn_attrs = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
-    if not cn_attrs:
-        raise HTTPException(status_code=400, detail="Certificate missing Common Name")
-
-    return cert, cn_attrs[0].value, format(cert.serial_number, "x").lower()
-
-
-def _decode_archive_member(raw: bytes) -> str | None:
-    for encoding in ("utf-8", "ascii", "latin-1"):
-        try:
-            return raw.decode(encoding)
-        except UnicodeDecodeError:
-            continue
-    return None
-
-
-def _extract_archive_bundle(archive_bytes: bytes) -> tuple[str, str, str | None]:
-    try:
-        zf = zipfile.ZipFile(io.BytesIO(archive_bytes))
-    except zipfile.BadZipFile as exc:
-        raise HTTPException(status_code=400, detail=f"Invalid zip archive: {exc}")
-
-    cert_candidates: list[tuple[str, str, x509.Certificate]] = []
-    key_candidates: list[tuple[str, object]] = []
-
-    for info in zf.infolist():
-        if info.is_dir():
-            continue
-        if info.file_size > 2 * 1024 * 1024:
-            raise HTTPException(status_code=400, detail=f"Archive member too large: {info.filename}")
-
-        text = _decode_archive_member(zf.read(info))
-        if text is None or "-----BEGIN " not in text:
-            continue
-
-        for match in CERT_PEM_RE.finditer(text):
-            pem = _normalize_pem_block(match.group(0))
-            try:
-                cert = x509.load_pem_x509_certificate(pem.encode())
-            except Exception:
-                continue
-            cert_candidates.append((info.filename, pem, cert))
-
-        for match in PRIVATE_KEY_PEM_RE.finditer(text):
-            pem = _normalize_pem_block(match.group(0))
-            try:
-                key = serialization.load_pem_private_key(pem.encode(), password=None)
-            except Exception:
-                continue
-            key_candidates.append((pem, key))
-
-    if not cert_candidates:
-        raise HTTPException(status_code=400, detail="Archive does not contain a valid certificate PEM")
-    if not key_candidates:
-        raise HTTPException(status_code=400, detail="Archive does not contain a valid private key PEM")
-
-    selected_key_pem = key_candidates[0][0]
-    leaf_index = 0
-
-    for key_pem, key_obj in key_candidates:
-        key_public = key_obj.public_key().public_bytes(
-            serialization.Encoding.DER,
-            serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
-        for index, (_, _, cert) in enumerate(cert_candidates):
-            cert_public = cert.public_key().public_bytes(
-                serialization.Encoding.DER,
-                serialization.PublicFormat.SubjectPublicKeyInfo,
-            )
-            if cert_public == key_public:
-                selected_key_pem = key_pem
-                leaf_index = index
-                break
-        else:
-            continue
-        break
-
-    cert_pem = cert_candidates[leaf_index][1]
-    chain_blocks: list[str] = []
-    seen = {cert_pem}
-    for index, (_, pem, _) in enumerate(cert_candidates):
-        if index == leaf_index or pem in seen:
-            continue
-        seen.add(pem)
-        chain_blocks.append(pem)
-
-    return cert_pem, selected_key_pem, "".join(chain_blocks) or None
-
-
-async def _persist_external_cert(
-    *,
-    db: AsyncSession,
-    request: Request,
-    name: str,
-    description: str | None,
-    cert_pem: str,
-    key_pem: str,
-    chain_pem: str | None,
-    provider: str | None,
-    external_id: str | None,
-) -> ExternalCertUploadResponse:
-    settings = get_settings()
-    cert, subject_cn, serial_hex = _parse_external_cert_metadata(cert_pem)
-    key_encrypted = encrypt_key(key_pem.encode(), settings.ca_key_encryption_key)
-
-    external_cert = ExternalCertificate(
-        name=name,
-        description=description,
-        cert_pem=cert_pem,
-        key_pem_encrypted=key_encrypted,
-        chain_pem=chain_pem,
-        subject_cn=subject_cn,
-        serial_hex=serial_hex,
-        not_before=cert.not_valid_before_utc,
-        not_after=cert.not_valid_after_utc,
-        provider=provider,
-        external_id=external_id,
-    )
-    db.add(external_cert)
-    await db.flush()
-
-    await write_audit(
-        db,
-        action="external_cert_uploaded",
-        entity_type="external_certificate",
-        entity_id=external_cert.id,
-        actor=_actor(request),
-        details={
-            "name": external_cert.name,
-            "provider": provider,
-            "subject_cn": subject_cn,
-            "serial_hex": serial_hex,
-        },
-        ip_address=_ip(request),
-    )
-    await db.commit()
-    await db.refresh(external_cert)
-
-    return ExternalCertUploadResponse(
-        id=external_cert.id,
-        name=external_cert.name,
-        subject_cn=external_cert.subject_cn,
-        serial_hex=external_cert.serial_hex,
-        not_after=external_cert.not_after,
-        message="Certificate uploaded. Use /agents/{id}/assign-cert to assign to agents.",
-    )
 
 
 # ===========================================================================
@@ -449,59 +275,70 @@ async def upload_external_cert(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    return await _persist_external_cert(
-        db=db,
-        request=request,
+    from cryptography import x509
+    from cryptography.x509.oid import NameOID
+
+    settings = get_settings()
+
+    # Parse certificate
+    try:
+        cert = x509.load_pem_x509_certificate(body.cert_pem.encode())
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid certificate PEM: {e}")
+
+    # Extract CN
+    cn_attrs = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
+    if not cn_attrs:
+        raise HTTPException(status_code=400, detail="Certificate missing Common Name")
+    subject_cn = cn_attrs[0].value
+
+    # Extract serial
+    serial_hex = format(cert.serial_number, 'x').lower()
+
+    # Encrypt private key
+    key_encrypted = encrypt_key(body.key_pem.encode(), settings.ca_key_encryption_key)
+
+    # Create external certificate record
+    external_cert = ExternalCertificate(
         name=body.name,
         description=body.description,
         cert_pem=body.cert_pem,
-        key_pem=body.key_pem,
+        key_pem_encrypted=key_encrypted,
         chain_pem=body.chain_pem,
+        subject_cn=subject_cn,
+        serial_hex=serial_hex,
+        not_before=cert.not_valid_before_utc,
+        not_after=cert.not_valid_after_utc,
         provider=body.provider,
         external_id=body.external_id,
     )
+    db.add(external_cert)
+    await db.flush()
 
+    await write_audit(
+        db,
+        action="external_cert_uploaded",
+        entity_type="external_certificate",
+        entity_id=external_cert.id,
+        actor=_actor(request),
+        details={
+            "name": body.name,
+            "provider": body.provider,
+            "subject_cn": subject_cn,
+            "serial_hex": serial_hex,
+        },
+        ip_address=_ip(request),
+    )
+    await db.commit()
+    await db.refresh(external_cert)
 
-@router.post(
-    "/external-certs/upload-archive",
-    response_model=ExternalCertUploadResponse,
-    status_code=status.HTTP_201_CREATED,
-    tags=["control / external-certs"],
-    summary="上传外部证书压缩包",
-    description="""
-直接上传第三方平台导出的 zip 压缩包。
-
-- 自动从压缩包中提取证书、公钥链和私钥
-- 自动用私钥匹配叶子证书
-- 私钥会被 Fernet 加密后存储
-    """,
-)
-async def upload_external_cert_archive(
-    request: Request,
-    archive: UploadFile = File(...),
-    name: str | None = Form(None),
-    description: str | None = Form(None),
-    provider: str | None = Form(None),
-    external_id: str | None = Form(None),
-    db: AsyncSession = Depends(get_db),
-):
-    archive_bytes = await archive.read()
-    if not archive_bytes:
-        raise HTTPException(status_code=400, detail="Archive file is empty")
-
-    cert_pem, key_pem, chain_pem = _extract_archive_bundle(archive_bytes)
-    resolved_name = (name or "").strip() or Path(archive.filename or "uploaded-cert.zip").stem
-
-    return await _persist_external_cert(
-        db=db,
-        request=request,
-        name=resolved_name,
-        description=description,
-        cert_pem=cert_pem,
-        key_pem=key_pem,
-        chain_pem=chain_pem,
-        provider=provider,
-        external_id=external_id,
+    return ExternalCertUploadResponse(
+        id=external_cert.id,
+        name=external_cert.name,
+        subject_cn=external_cert.subject_cn,
+        serial_hex=external_cert.serial_hex,
+        not_after=external_cert.not_after,
+        message="Certificate uploaded. Use /agents/{id}/assign-cert to assign to agents.",
     )
 
 
@@ -541,55 +378,6 @@ async def get_external_cert(cert_id: uuid.UUID, db: AsyncSession = Depends(get_d
     if not cert:
         raise HTTPException(status_code=404, detail="External certificate not found")
     return cert
-
-
-@router.delete(
-    "/external-certs/{cert_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    tags=["control / external-certs"],
-    summary="删除外部证书",
-)
-async def delete_external_cert(
-    cert_id: uuid.UUID,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-):
-    cert = await db.get(ExternalCertificate, cert_id)
-    if not cert:
-        raise HTTPException(status_code=404, detail="External certificate not found")
-
-    assignment_count = (
-        await db.execute(
-            select(func.count())
-            .select_from(AgentCertAssignment)
-            .where(AgentCertAssignment.external_cert_id == cert_id)
-        )
-    ).scalar_one()
-
-    await db.execute(
-        update(Certificate)
-        .where(Certificate.external_cert_id == cert_id)
-        .values(external_cert_id=None)
-    )
-    await db.execute(
-        delete(AgentCertAssignment).where(AgentCertAssignment.external_cert_id == cert_id)
-    )
-
-    await write_audit(
-        db,
-        action="external_cert_deleted",
-        entity_type="external_certificate",
-        entity_id=cert_id,
-        actor=_actor(request),
-        details={
-            "name": cert.name,
-            "subject_cn": cert.subject_cn,
-            "assignments_removed": assignment_count,
-        },
-        ip_address=_ip(request),
-    )
-    await db.delete(cert)
-    await db.commit()
 
 
 # ===========================================================================
@@ -953,7 +741,7 @@ async def rollback_rollout_endpoint(
 **覆盖的操作：**
 `agent_created` / `agent_registered` / `agent_approved` / `agent_rejected` / `agent_deleted` /
 `cert_assigned` / `cert_assignment_deleted` /
-`external_cert_uploaded` / `external_cert_deleted` /
+`external_cert_uploaded` /
 `agent_fetch_certs` /
 `rollout_created` / `rollout_started` / `rollout_batch_started` /
 `rollout_paused` / `rollout_resumed` /

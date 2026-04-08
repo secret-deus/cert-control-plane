@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { UploadCloud, AlertCircle, CheckCircle, Shield, ChevronDown, ChevronUp, Link, Trash2 } from 'lucide-react';
-import { apiFetch, apiPost, apiPostForm, apiDelete } from '../lib/api';
+import { apiFetch, apiPost, apiDelete } from '../lib/api';
 
 interface ExternalCert {
   id: string;
@@ -59,8 +59,6 @@ export default function ExternalCertsPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState(false);
-  const [uploadMode, setUploadMode] = useState<'pem' | 'archive'>('pem');
-  const [archiveFile, setArchiveFile] = useState<File | null>(null);
 
   // Assign form state (per expanded cert)
   const [assignAgentId, setAssignAgentId] = useState('');
@@ -68,7 +66,6 @@ export default function ExternalCertsPage() {
   const [assigning, setAssigning] = useState(false);
   const [assignError, setAssignError] = useState<string | null>(null);
   const [assignSuccess, setAssignSuccess] = useState(false);
-  const [deletingCertId, setDeletingCertId] = useState<string | null>(null);
 
   const fetchCerts = useCallback(async () => {
     try {
@@ -130,23 +127,9 @@ export default function ExternalCertsPage() {
     setUploadSuccess(false);
 
     try {
-      if (uploadMode === 'archive') {
-        if (!archiveFile) {
-          throw new Error('Please choose a zip archive');
-        }
-        const formData = new FormData();
-        formData.append('archive', archiveFile);
-        formData.append('name', uploadForm.name.trim());
-        formData.append('description', uploadForm.description.trim());
-        formData.append('provider', uploadForm.provider);
-        await apiPostForm('/external-certs/upload-archive', formData);
-      } else {
-        await apiPost('/external-certs', uploadForm);
-      }
+      await apiPost('/external-certs', uploadForm);
       setUploadSuccess(true);
       setUploadForm({ name: '', description: '', cert_pem: '', key_pem: '', chain_pem: '', provider: 'aliyun' });
-      setArchiveFile(null);
-      setUploadMode('pem');
       await fetchCerts();
       setTimeout(() => { setShowUploadForm(false); setUploadSuccess(false); }, 2000);
     } catch (err) {
@@ -188,31 +171,6 @@ export default function ExternalCertsPage() {
       loadAssignmentsForCert(certId);
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Delete failed');
-    }
-  };
-
-  const handleDeleteCert = async (certId: string, certName: string, assignmentCount: number) => {
-    const warning = assignmentCount > 0
-      ? `Delete "${certName}" and remove ${assignmentCount} assignment(s)?`
-      : `Delete "${certName}"?`;
-    if (!confirm(warning)) return;
-
-    setDeletingCertId(certId);
-    try {
-      await apiDelete(`/external-certs/${certId}`);
-      setAssignmentsMap(prev => {
-        const next = { ...prev };
-        delete next[certId];
-        return next;
-      });
-      if (expandedCert === certId) {
-        setExpandedCert(null);
-      }
-      await fetchCerts();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Delete failed');
-    } finally {
-      setDeletingCertId(null);
     }
   };
 
@@ -280,30 +238,6 @@ export default function ExternalCertsPage() {
           )}
 
           <form onSubmit={handleUpload} className="space-y-4">
-            <div>
-              <label className="block text-sm text-[var(--color-text-secondary)] mb-2">Upload Mode</label>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setUploadMode('pem')}
-                  className={`px-3 py-2 rounded-lg text-sm transition-colors ${uploadMode === 'pem'
-                    ? 'bg-[var(--color-accent-blue)] text-white'
-                    : 'border border-[var(--color-border-subtle)] text-[var(--color-text-secondary)] hover:text-white'}`}
-                >
-                  Paste PEM
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setUploadMode('archive')}
-                  className={`px-3 py-2 rounded-lg text-sm transition-colors ${uploadMode === 'archive'
-                    ? 'bg-[var(--color-accent-blue)] text-white'
-                    : 'border border-[var(--color-border-subtle)] text-[var(--color-text-secondary)] hover:text-white'}`}
-                >
-                  Upload ZIP
-                </button>
-              </div>
-            </div>
-
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm text-[var(--color-text-secondary)] mb-1">Name *</label>
@@ -343,76 +277,46 @@ export default function ExternalCertsPage() {
               />
             </div>
 
-            {uploadMode === 'pem' ? (
-              <>
-                <div>
-                  <label className="block text-sm text-[var(--color-text-secondary)] mb-1">Certificate PEM *</label>
-                  <textarea
-                    value={uploadForm.cert_pem}
-                    onChange={e => setUploadForm({ ...uploadForm, cert_pem: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg bg-[rgba(255,255,255,0.05)] border border-[var(--color-border-subtle)] text-white focus:outline-none focus:border-[var(--color-accent-blue)] font-mono text-xs"
-                    rows={4}
-                    placeholder="-----BEGIN CERTIFICATE-----&#10;..."
-                    required={uploadMode === 'pem'}
-                  />
-                </div>
+            <div>
+              <label className="block text-sm text-[var(--color-text-secondary)] mb-1">Certificate PEM *</label>
+              <textarea
+                value={uploadForm.cert_pem}
+                onChange={e => setUploadForm({ ...uploadForm, cert_pem: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg bg-[rgba(255,255,255,0.05)] border border-[var(--color-border-subtle)] text-white focus:outline-none focus:border-[var(--color-accent-blue)] font-mono text-xs"
+                rows={4}
+                placeholder="-----BEGIN CERTIFICATE-----&#10;..."
+                required
+              />
+            </div>
 
-                <div>
-                  <label className="block text-sm text-[var(--color-text-secondary)] mb-1">Private Key PEM *</label>
-                  <textarea
-                    value={uploadForm.key_pem}
-                    onChange={e => setUploadForm({ ...uploadForm, key_pem: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg bg-[rgba(255,255,255,0.05)] border border-[var(--color-border-subtle)] text-white focus:outline-none focus:border-[var(--color-accent-blue)] font-mono text-xs"
-                    rows={4}
-                    placeholder="-----BEGIN PRIVATE KEY-----&#10;..."
-                    required={uploadMode === 'pem'}
-                  />
-                  <p className="text-xs text-[var(--color-text-secondary)] mt-1">Encrypted before storage</p>
-                </div>
+            <div>
+              <label className="block text-sm text-[var(--color-text-secondary)] mb-1">Private Key PEM *</label>
+              <textarea
+                value={uploadForm.key_pem}
+                onChange={e => setUploadForm({ ...uploadForm, key_pem: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg bg-[rgba(255,255,255,0.05)] border border-[var(--color-border-subtle)] text-white focus:outline-none focus:border-[var(--color-accent-blue)] font-mono text-xs"
+                rows={4}
+                placeholder="-----BEGIN PRIVATE KEY-----&#10;..."
+                required
+              />
+              <p className="text-xs text-[var(--color-text-secondary)] mt-1">Encrypted before storage</p>
+            </div>
 
-                <div>
-                  <label className="block text-sm text-[var(--color-text-secondary)] mb-1">Certificate Chain (Optional)</label>
-                  <textarea
-                    value={uploadForm.chain_pem}
-                    onChange={e => setUploadForm({ ...uploadForm, chain_pem: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg bg-[rgba(255,255,255,0.05)] border border-[var(--color-border-subtle)] text-white focus:outline-none focus:border-[var(--color-accent-blue)] font-mono text-xs"
-                    rows={3}
-                    placeholder="-----BEGIN CERTIFICATE-----&#10;... (Intermediate/Root CA chain)"
-                  />
-                </div>
-              </>
-            ) : (
-              <div>
-                <label className="block text-sm text-[var(--color-text-secondary)] mb-1">ZIP Archive *</label>
-                <input
-                  type="file"
-                  accept=".zip,application/zip"
-                  onChange={e => {
-                    const file = e.target.files?.[0] || null;
-                    setArchiveFile(file);
-                    if (file && !uploadForm.name.trim()) {
-                      setUploadForm({
-                        ...uploadForm,
-                        name: file.name.replace(/\.zip$/i, ''),
-                      });
-                    }
-                  }}
-                  className="block w-full text-sm text-[var(--color-text-secondary)] file:mr-4 file:rounded-lg file:border-0 file:bg-[var(--color-accent-blue)] file:px-4 file:py-2 file:text-white hover:file:bg-[var(--color-accent-blue)]/80"
-                  required={uploadMode === 'archive'}
-                />
-                <p className="text-xs text-[var(--color-text-secondary)] mt-2">
-                  Supports provider-exported zip packages containing certificate, private key, and optional chain.
-                </p>
-              </div>
-            )}
+            <div>
+              <label className="block text-sm text-[var(--color-text-secondary)] mb-1">Certificate Chain (Optional)</label>
+              <textarea
+                value={uploadForm.chain_pem}
+                onChange={e => setUploadForm({ ...uploadForm, chain_pem: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg bg-[rgba(255,255,255,0.05)] border border-[var(--color-border-subtle)] text-white focus:outline-none focus:border-[var(--color-accent-blue)] font-mono text-xs"
+                rows={3}
+                placeholder="-----BEGIN CERTIFICATE-----&#10;... (Intermediate/Root CA chain)"
+              />
+            </div>
 
             <div className="flex justify-end gap-3">
               <button
                 type="button"
-                onClick={() => {
-                  setShowUploadForm(false);
-                  setArchiveFile(null);
-                }}
+                onClick={() => setShowUploadForm(false)}
                 className="px-4 py-2 rounded-lg border border-[var(--color-border-subtle)] text-[var(--color-text-secondary)] hover:text-white transition-colors"
               >
                 Cancel
@@ -468,18 +372,6 @@ export default function ExternalCertsPage() {
                         Expires: {new Date(cert.not_after).toLocaleDateString()}
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={e => {
-                        e.stopPropagation();
-                        void handleDeleteCert(cert.id, cert.name, certAssignments.length);
-                      }}
-                      disabled={deletingCertId === cert.id}
-                      className="p-2 rounded-lg text-[var(--color-text-secondary)] hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
-                      title="Delete certificate"
-                    >
-                      <Trash2 size={16} />
-                    </button>
                     {isExpanded
                       ? <ChevronUp size={20} className="text-[var(--color-text-secondary)]" />
                       : <ChevronDown size={20} className="text-[var(--color-text-secondary)]" />

@@ -205,8 +205,6 @@ def _do_fetch_and_deploy(config: AgentConfig, client: ControlPlaneClient) -> Non
         logger.info("Cert update available for %s", local_path)
         _deploy_cert_update(config, update)
 
-    _report_current_certs(config, client)
-
 
 def _read_cert_not_after(local_path: str) -> str | None:
     """Read a PEM cert file and return its not_after as ISO 8601 string, or None."""
@@ -220,42 +218,6 @@ def _read_cert_not_after(local_path: str) -> str | None:
     except Exception:
         logger.warning("Failed to read/parse cert at %s", local_path)
         return None
-
-
-def _report_current_certs(config: AgentConfig, client: ControlPlaneClient) -> None:
-    """Report current local cert inventory back to the control plane."""
-    cert_inventory = []
-    for entry in config.cert_table:
-        local_path = entry.get("local_path", "")
-        if not local_path:
-            continue
-
-        cert_path = Path(local_path)
-        if not cert_path.exists():
-            continue
-
-        try:
-            cert_pem = cert_path.read_text()
-            x509.load_pem_x509_certificate(cert_pem.encode())
-        except Exception:
-            logger.warning("Failed to read/parse cert at %s for reporting", local_path)
-            continue
-
-        chain_path = cert_path.with_suffix(".chain.crt")
-        chain_pem = chain_path.read_text() if chain_path.exists() else None
-        cert_inventory.append({
-            "local_path": local_path,
-            "cert_pem": cert_pem,
-            "chain_pem": chain_pem,
-        })
-
-    if not cert_inventory:
-        return
-
-    try:
-        client.report_certs(cert_inventory)
-    except Exception:
-        logger.exception("Failed to report deployed cert inventory")
 
 
 def _deploy_cert_update(config: AgentConfig, update: dict) -> None:
@@ -274,14 +236,11 @@ def _deploy_cert_update(config: AgentConfig, update: dict) -> None:
     # Backup existing files
     old_cert = p.with_suffix(".crt.old")
     old_key = key_path.with_suffix(".key.old")
-    old_chain = chain_path.with_suffix(".chain.crt.old")
 
     if p.exists():
         _backup(p, old_cert)
     if key_path.exists():
         _backup(key_path, old_key)
-    if chain_path.exists():
-        _backup(chain_path, old_chain)
 
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -315,7 +274,6 @@ def _deploy_cert_update(config: AgentConfig, update: dict) -> None:
         # Clean up backups
         old_cert.unlink(missing_ok=True)
         old_key.unlink(missing_ok=True)
-        old_chain.unlink(missing_ok=True)
 
     except Exception:
         logger.exception("Failed to deploy cert to %s, restoring backups", local_path)
@@ -323,10 +281,6 @@ def _deploy_cert_update(config: AgentConfig, update: dict) -> None:
             _restore(old_cert, p)
         if old_key.exists():
             _restore(old_key, key_path)
-        if old_chain.exists():
-            _restore(old_chain, chain_path)
-        else:
-            chain_path.unlink(missing_ok=True)
         raise
 
 

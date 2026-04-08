@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import AuthScreen from './components/AuthScreen';
 import Layout from './components/Layout';
@@ -10,7 +10,12 @@ import RolloutsPage from './components/RolloutsPage';
 import AuditLogsPage from './components/AuditLogsPage';
 
 function App() {
-  const [apiKey, setApiKey] = useState<string | null>(() => sessionStorage.getItem('admin_api_key'));
+  const [apiKey, setApiKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    const storedKey = sessionStorage.getItem('admin_api_key');
+    if (storedKey) setApiKey(storedKey);
+  }, []);
 
   const handleLogin = (key: string) => {
     sessionStorage.setItem('admin_api_key', key);

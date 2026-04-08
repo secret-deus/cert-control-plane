@@ -11,7 +11,7 @@ interface LayoutProps {
 const navItems = [
   { to: '/',            icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/agents',      icon: Server,          label: 'Agents' },
-  { to: '/certificates',icon: FileKey2,        label: 'Deployed Certs' },
+  { to: '/certificates',icon: FileKey2,        label: 'Certificates' },
   { to: '/external-certs',icon: UploadCloud,   label: 'External Certs' },
   { to: '/rollouts',    icon: RefreshCw,       label: 'Rollouts' },
   { to: '/audit',       icon: ScrollText,      label: 'Audit Logs' },

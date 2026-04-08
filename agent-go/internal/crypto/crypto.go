@@ -1,7 +1,6 @@
 package crypto
 
 import (
-	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -27,7 +26,10 @@ func GenerateCSR(key *rsa.PrivateKey, commonName string, sans []string) ([]byte,
 	// Add SANs if provided
 	if len(sans) > 0 {
 		template.DNSNames = make([]string, 0, len(sans))
+		template.IPAddresses = make([]string, 0, len(sans))
 		for _, san := range sans {
+			// Simple heuristic: if it contains dots and letters, it's a DNS name
+			// otherwise treat as IP (simplified)
 			template.DNSNames = append(template.DNSNames, san)
 		}
 	}
@@ -138,8 +140,7 @@ func ParseCertificate(certPEM []byte) (*x509.Certificate, error) {
 
 // CalculateFingerprint calculates SHA-256 fingerprint of certificate
 func CalculateFingerprint(cert *x509.Certificate) string {
-	sum := sha256Sum(cert.Raw)
-	return fmt.Sprintf("%x", sum)
+	return fmt.Sprintf("%x", cert.Fingerprint)
 }
 
 // ExtractSerialNumber extracts the serial number from a certificate PEM
@@ -149,10 +150,4 @@ func ExtractSerialNumber(certPEM []byte) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("%x", cert.SerialNumber), nil
-}
-
-func sha256Sum(data []byte) []byte {
-	sum := crypto.SHA256.New()
-	sum.Write(data)
-	return sum.Sum(nil)
 }

@@ -1,12 +1,11 @@
 """Rollout Orchestrator – advances batches, handles pause/resume/rollback.
 
-Current project baseline is external certificate distribution, not CSR signing.
-
-Important limitation:
-  - Rollout items are still modeled at the agent level.
-  - The distribution pipeline itself operates on agent + local_path + external_cert.
-  - Because of that, rollout currently acts as an agent-level batch window and
-    state machine, not a precise per-assignment deployment fact source.
+CSR mode flow:
+  1. Orchestrator marks rollout_items as IN_PROGRESS (= "agent should renew")
+  2. Agent sees pending_action=renew in heartbeat → generates key + CSR → POST /renew
+  3. /renew endpoint issues cert and marks rollout_item COMPLETED
+  4. Orchestrator waits for ALL items in the current batch to finish before advancing
+  5. Items stuck IN_PROGRESS beyond timeout are marked FAILED
 """
 
 import logging
@@ -141,7 +140,7 @@ async def advance_all_rollouts() -> None:
 
 
 async def _advance_rollout(db: AsyncSession, rollout: Rollout) -> None:
-    """Advance one rollout.
+    """Advance one rollout (CSR mode).
 
     Logic:
       1. Timeout any IN_PROGRESS items that have exceeded the deadline
@@ -162,7 +161,7 @@ async def _advance_rollout(db: AsyncSession, rollout: Rollout) -> None:
     if current_batch > 0:
         batch_done = await _is_batch_complete(db, rollout.id, current_batch)
         if not batch_done:
-            # Still waiting for the current agent batch to reach a terminal state
+            # Still waiting for agents to finish renewal
             return
 
         # Fail-fast: if any item in the batch failed, stop the rollout

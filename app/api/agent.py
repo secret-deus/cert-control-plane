@@ -11,8 +11,6 @@ import logging
 import secrets
 from datetime import datetime, timezone
 
-from cryptography import x509
-from cryptography.x509.oid import NameOID
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,12 +19,10 @@ from app.config import get_settings
 from app.core.audit import write_audit
 from app.core.crypto import decrypt_key
 from app.database import get_db
-from app.models import Agent, AgentCertAssignment, AgentStatus, Certificate, ExternalCertificate
+from app.models import Agent, AgentCertAssignment, AgentStatus, ExternalCertificate
 from app.schemas import (
     AgentFetchCertsRequest,
     AgentFetchCertsResponse,
-    AgentReportCertsRequest,
-    AgentReportCertsResponse,
     AgentRegisterRequest,
     AgentRegisterResponse,
     AgentRegisterStatusResponse,
@@ -68,19 +64,6 @@ async def _resolve_agent_by_token(
             detail="Invalid or inactive agent token",
         )
     return agent
-
-
-def _parse_reported_cert(cert_pem: str) -> tuple[x509.Certificate, str, str]:
-    """Parse a PEM cert into (cert, subject_cn, serial_hex)."""
-    try:
-        cert = x509.load_pem_x509_certificate(cert_pem.encode())
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Invalid certificate PEM: {exc}")
-
-    cn_attrs = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
-    subject_cn = cn_attrs[0].value if cn_attrs else cert.subject.rfc4514_string()
-    serial_hex = format(cert.serial_number, "x").lower()
-    return cert, subject_cn, serial_hex
 
 
 # ---------------------------------------------------------------------------
@@ -370,77 +353,3 @@ async def fetch_certs(
     )
     await db.commit()
     return AgentFetchCertsResponse(updates=updates)
-
-
-@router.post(
-    "/report-certs",
-    response_model=AgentReportCertsResponse,
-    summary="上报当前已部署证书",
-    description="""
-Agent 上报当前本地路径上的证书清单，控制面据此维护每个路径的当前证书状态。
-
-需要 `X-Agent-Token` 认证。
-    """,
-)
-async def report_certs(
-    body: AgentReportCertsRequest,
-    x_agent_token: str | None = Header(None),
-    db: AsyncSession = Depends(get_db),
-):
-    agent = await _resolve_agent_by_token(x_agent_token, db)
-    recorded = 0
-
-    for item in body.certs:
-        cert, subject_cn, serial_hex = _parse_reported_cert(item.cert_pem)
-
-        ext_result = await db.execute(
-            select(ExternalCertificate).where(
-                ExternalCertificate.serial_hex == serial_hex,
-                ExternalCertificate.is_active.is_(True),
-            )
-        )
-        ext_cert = ext_result.scalar_one_or_none()
-
-        current_result = await db.execute(
-            select(Certificate).where(
-                Certificate.agent_id == agent.id,
-                Certificate.local_path == item.local_path,
-                Certificate.is_current.is_(True),
-                Certificate.revoked_at.is_(None),
-            )
-        )
-        current = current_result.scalar_one_or_none()
-
-        if current and current.serial_hex == serial_hex:
-            current.external_cert_id = ext_cert.id if ext_cert else None
-            current.subject_cn = subject_cn
-            current.not_before = cert.not_valid_before_utc
-            current.not_after = cert.not_valid_after_utc
-            current.cert_pem = item.cert_pem
-            current.chain_pem = item.chain_pem
-            db.add(current)
-            recorded += 1
-            continue
-
-        if current:
-            current.is_current = False
-            current.revoked_at = datetime.now(tz=timezone.utc)
-            db.add(current)
-
-        db.add(Certificate(
-            agent_id=agent.id,
-            external_cert_id=ext_cert.id if ext_cert else None,
-            local_path=item.local_path,
-            serial_hex=serial_hex,
-            subject_cn=subject_cn,
-            not_before=cert.not_valid_before_utc,
-            not_after=cert.not_valid_after_utc,
-            cert_pem=item.cert_pem,
-            chain_pem=item.chain_pem,
-            is_current=True,
-            revoked_at=None,
-        ))
-        recorded += 1
-
-    await db.commit()
-    return AgentReportCertsResponse(recorded=recorded)

@@ -1,0 +1,30 @@
+[package]
+name = "cert-agent"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.35", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+reqwest = { version = "0.11", features = ["json", "native-tls"] }
+config = "0.14"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rsa = { version = "0.9", features = ["sha2"] }
+rand = "0.8"
+sha2 = "0.10"
+hex = "0.4"
+x509-cert = "0.2"
+spki = "0.7"
+pkcs8 = { version = "0.10", features = ["pem", "pkcs5"] }
+pem-rfc7468 = "0.7"
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "1.0"
+uuid = { version = "1.6", features = ["v4", "serde"] }
+dirs = "5.0"
+
+[profile.release]
+opt-level = 3
+lto = true

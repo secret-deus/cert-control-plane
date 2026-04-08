@@ -25,11 +25,6 @@ from app.database import Base
 # ---------------------------------------------------------------------------
 
 
-def _enum_values(enum_cls: type[enum.Enum]) -> list[str]:
-    """Persist enum values, not member names, so Postgres labels stay stable."""
-    return [member.value for member in enum_cls]
-
-
 class AgentStatus(str, enum.Enum):
     PENDING_APPROVAL = "pending_approval"  # Registered fingerprint, awaiting admin approval
     ACTIVE = "active"                       # Approved, holds agent_token
@@ -67,9 +62,7 @@ class Agent(Base):
     name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     status: Mapped[AgentStatus] = mapped_column(
-        Enum(AgentStatus, values_callable=_enum_values),
-        default=AgentStatus.PENDING_APPROVAL,
-        nullable=False,
+        Enum(AgentStatus), default=AgentStatus.PENDING_APPROVAL, nullable=False
     )
     # SHA-256 fingerprint of agent's public key (TOFU identity)
     fingerprint: Mapped[str | None] = mapped_column(String(64), unique=True)
@@ -192,9 +185,7 @@ class Rollout(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     status: Mapped[RolloutStatus] = mapped_column(
-        Enum(RolloutStatus, values_callable=_enum_values),
-        default=RolloutStatus.PENDING,
-        nullable=False,
+        Enum(RolloutStatus), default=RolloutStatus.PENDING, nullable=False
     )
     batch_size: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
     current_batch: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -232,9 +223,7 @@ class RolloutItem(Base):
         UUID(as_uuid=True), ForeignKey("agents.id"), nullable=False
     )
     status: Mapped[RolloutItemStatus] = mapped_column(
-        Enum(RolloutItemStatus, values_callable=_enum_values),
-        default=RolloutItemStatus.PENDING,
-        nullable=False,
+        Enum(RolloutItemStatus), default=RolloutItemStatus.PENDING, nullable=False
     )
     batch_number: Mapped[int] = mapped_column(Integer, nullable=False)
     # Saved before cert rotation so rollback can restore

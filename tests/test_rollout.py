@@ -91,8 +91,6 @@ class MockDBBuilder:
 
     def __init__(self):
         self._session = AsyncMock()
-        self._session.add = MagicMock()
-        self._session.flush = AsyncMock()
         self._execute_results = []
 
     def add_scalars_all(self, items: list) -> "MockDBBuilder":
@@ -293,8 +291,6 @@ class TestRollback:
         agent = _make_agent("test-agent")
 
         session = AsyncMock()
-        session.add = MagicMock()
-        session.flush = AsyncMock()
 
         # First execute returns items, subsequent executes (updates) return default
         first_call = True
@@ -347,7 +343,6 @@ class TestPauseResume:
     async def test_pause_resume_cycle(self):
         rollout = _make_rollout(status=RolloutStatus.RUNNING)
         db = AsyncMock()
-        db.add = MagicMock()
 
         with patch("app.orchestrator.rollout.write_audit", new_callable=AsyncMock):
             paused = await pause_rollout(db, rollout, actor="admin")

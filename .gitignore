@@ -11,5 +11,10 @@ frontend/dist/
 frontend/node_modules/
 .pytest_cache/
 .qoder/
+certcp.db
+*.db-shm
+*.db-wal
+*.bak
+CLAUDE.md
 agent-go/cert-agent
 agent-rust/target/

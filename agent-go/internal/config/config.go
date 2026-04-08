@@ -1,16 +1,11 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
-	"strconv"
-	"strings"
 	"time"
 
-	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/viper"
 )
 
@@ -41,8 +36,8 @@ type Config struct {
 
 // CertTableEntry is one entry in the cert table
 type CertTableEntry struct {
-	LocalPath string `mapstructure:"local_path" json:"local_path"`
-	CertName  string `mapstructure:"cert_name" json:"cert_name"`
+	LocalPath string `mapstructure:"local_path"`
+	CertName  string `mapstructure:"cert_name"`
 }
 
 // DefaultConfig returns default configuration
@@ -84,54 +79,8 @@ func Load(configPath string) (*Config, error) {
 		}
 	}
 
-	if err := viper.Unmarshal(
-		cfg,
-		viper.DecodeHook(
-			mapstructure.ComposeDecodeHookFunc(durationDecodeHook()),
-		),
-	); err != nil {
+	if err := viper.Unmarshal(cfg); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
-	}
-
-	// Environment variables are the primary deployment model for the current agent.
-	if value := strings.TrimSpace(os.Getenv("CERT_AGENT_CP_URL")); value != "" {
-		cfg.ControlPlaneURL = value
-	}
-	if value := strings.TrimSpace(os.Getenv("CERT_AGENT_NAME")); value != "" {
-		cfg.AgentName = value
-	}
-	if value := strings.TrimSpace(os.Getenv("CERT_AGENT_TOKEN")); value != "" {
-		cfg.AgentToken = value
-	}
-	if value := strings.TrimSpace(os.Getenv("CERT_AGENT_STATE_DIR")); value != "" {
-		cfg.StateDir = value
-	}
-	if value := strings.TrimSpace(os.Getenv("CERT_AGENT_NGINX_CERT_DIR")); value != "" {
-		cfg.NginxCertDir = value
-	}
-	if value := strings.TrimSpace(os.Getenv("CERT_AGENT_NGINX_RELOAD_CMD")); value != "" {
-		cfg.NginxReloadCmd = value
-	}
-	if value := strings.TrimSpace(os.Getenv("CERT_AGENT_HEARTBEAT_INTERVAL")); value != "" {
-		seconds, err := parseInterval(value)
-		if err != nil {
-			return nil, fmt.Errorf("invalid CERT_AGENT_HEARTBEAT_INTERVAL: %w", err)
-		}
-		cfg.HeartbeatInterval = seconds
-	}
-	if value := strings.TrimSpace(os.Getenv("CERT_AGENT_POLL_INTERVAL")); value != "" {
-		seconds, err := parseInterval(value)
-		if err != nil {
-			return nil, fmt.Errorf("invalid CERT_AGENT_POLL_INTERVAL: %w", err)
-		}
-		cfg.PollInterval = seconds
-	}
-	if value := strings.TrimSpace(os.Getenv("CERT_AGENT_CERT_TABLE")); value != "" {
-		var certTable []CertTableEntry
-		if err := json.Unmarshal([]byte(value), &certTable); err != nil {
-			return nil, fmt.Errorf("invalid CERT_AGENT_CERT_TABLE JSON: %w", err)
-		}
-		cfg.CertTable = certTable
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -142,7 +91,7 @@ func Load(configPath string) (*Config, error) {
 	if cfg.AgentToken == "" {
 		tokenPath := filepath.Join(cfg.StateDir, "agent_token")
 		if data, err := os.ReadFile(tokenPath); err == nil {
-			cfg.AgentToken = strings.TrimSpace(string(data))
+			cfg.AgentToken = string(data)
 		}
 	}
 
@@ -182,41 +131,4 @@ func (c *Config) AgentIDPath() string {
 // AgentTokenPath returns path to agent token file
 func (c *Config) AgentTokenPath() string {
 	return filepath.Join(c.StateDir, "agent_token")
-}
-
-func parseInterval(value string) (time.Duration, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return 0, nil
-	}
-	if duration, err := time.ParseDuration(value); err == nil {
-		return duration, nil
-	}
-	seconds, err := strconv.Atoi(value)
-	if err != nil {
-		return 0, err
-	}
-	return time.Duration(seconds) * time.Second, nil
-}
-
-func durationDecodeHook() mapstructure.DecodeHookFuncType {
-	durationType := reflect.TypeOf(time.Duration(0))
-	return func(from reflect.Type, to reflect.Type, data interface{}) (interface{}, error) {
-		if to != durationType {
-			return data, nil
-		}
-
-		switch value := data.(type) {
-		case string:
-			return parseInterval(value)
-		case int:
-			return time.Duration(value) * time.Second, nil
-		case int64:
-			return time.Duration(value) * time.Second, nil
-		case float64:
-			return time.Duration(int(value)) * time.Second, nil
-		default:
-			return data, nil
-		}
-	}
 }

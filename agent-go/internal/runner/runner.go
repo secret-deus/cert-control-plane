@@ -74,11 +74,10 @@ func (r *Runner) ensureKeyPair() (string, error) {
 
 	if _, err := os.Stat(keyPath); os.IsNotExist(err) {
 		r.logger.Info("Generating new key pair", zap.String("path", keyPath))
-		key, err := crypto.GenerateKeyPair(3072)
-		if err != nil {
+		if _, err := crypto.GenerateKeyPair(3072); err != nil {
 			return "", fmt.Errorf("failed to generate key: %w", err)
 		}
-		if err := crypto.SavePrivateKey(key, keyPath); err != nil {
+		if err := crypto.SavePrivateKey(nil, keyPath); err != nil {
 			return "", fmt.Errorf("failed to save key: %w", err)
 		}
 	}
@@ -205,15 +204,8 @@ func (r *Runner) fetchAndDeployCerts() error {
 	if err != nil {
 		return fmt.Errorf("fetch-certs request failed: %w", err)
 	}
-	r.logger.Info("Fetched cert updates", zap.Int("count", len(resp.Updates)))
 
 	for _, update := range resp.Updates {
-		r.logger.Info(
-			"Received cert update entry",
-			zap.String("path", update.LocalPath),
-			zap.Bool("has_update", update.HasUpdate),
-			zap.Stringp("not_after", update.NotAfter),
-		)
 		if !update.HasUpdate {
 			continue
 		}
@@ -221,10 +213,6 @@ func (r *Runner) fetchAndDeployCerts() error {
 		if err := r.deployCertUpdate(update); err != nil {
 			r.logger.Error("Failed to deploy cert", zap.String("path", update.LocalPath), zap.Error(err))
 		}
-	}
-
-	if err := r.reportCurrentCerts(); err != nil {
-		r.logger.Warn("Failed to report deployed cert inventory", zap.Error(err))
 	}
 
 	return nil
@@ -254,10 +242,8 @@ func (r *Runner) deployCertUpdate(update client.CertUpdateItem) error {
 	// Backup existing files
 	oldCertPath := certPath + ".old"
 	oldKeyPath := keyPath + ".old"
-	oldChainPath := chainPath + ".old"
 	_ = copyFile(certPath, oldCertPath)
 	_ = copyFile(keyPath, oldKeyPath)
-	_ = copyFile(chainPath, oldChainPath)
 
 	// Write new files
 	if err := os.MkdirAll(filepath.Dir(certPath), 0755); err != nil {
@@ -274,20 +260,14 @@ func (r *Runner) deployCertUpdate(update client.CertUpdateItem) error {
 	if update.KeyPEM != nil {
 		if err := os.WriteFile(keyPath, []byte(*update.KeyPEM), 0600); err != nil {
 			restoreBackup(oldCertPath, certPath)
-			restoreBackup(oldKeyPath, keyPath)
 			return fmt.Errorf("failed to write key: %w", err)
 		}
 	}
 
 	if update.ChainPEM != nil {
 		if err := os.WriteFile(chainPath, []byte(*update.ChainPEM), 0644); err != nil {
-			restoreBackup(oldCertPath, certPath)
-			restoreBackup(oldKeyPath, keyPath)
-			restoreBackup(oldChainPath, chainPath)
-			return fmt.Errorf("failed to write chain: %w", err)
+			r.logger.Warn("Failed to write chain", zap.Error(err))
 		}
-	} else {
-		_ = os.Remove(chainPath)
 	}
 
 	// Reload nginx
@@ -296,7 +276,6 @@ func (r *Runner) deployCertUpdate(update client.CertUpdateItem) error {
 		if output, err := cmd.CombinedOutput(); err != nil {
 			restoreBackup(oldCertPath, certPath)
 			restoreBackup(oldKeyPath, keyPath)
-			restoreBackup(oldChainPath, chainPath)
 			return fmt.Errorf("nginx reload failed: %w - %s", err, string(output))
 		}
 	}
@@ -304,60 +283,9 @@ func (r *Runner) deployCertUpdate(update client.CertUpdateItem) error {
 	// Clean up backups
 	os.Remove(oldCertPath)
 	os.Remove(oldKeyPath)
-	os.Remove(oldChainPath)
 
 	r.logger.Info("Cert deployed", zap.String("path", certPath))
 	return nil
-}
-
-func (r *Runner) reportCurrentCerts() error {
-	if len(r.config.CertTable) == 0 {
-		return nil
-	}
-
-	reports := make([]client.DeployedCertReportItem, 0, len(r.config.CertTable))
-	for _, entry := range r.config.CertTable {
-		certPEM, err := os.ReadFile(entry.LocalPath)
-		if err != nil {
-			continue
-		}
-		if _, err := parseCertificatePEM(certPEM); err != nil {
-			r.logger.Warn("Failed to parse deployed cert for reporting", zap.String("path", entry.LocalPath), zap.Error(err))
-			continue
-		}
-
-		chainPath := replaceExt(entry.LocalPath, ".crt", ".chain.crt")
-		var chainPEM *string
-		if data, err := os.ReadFile(chainPath); err == nil {
-			value := string(data)
-			chainPEM = &value
-		}
-
-		reports = append(reports, client.DeployedCertReportItem{
-			LocalPath: entry.LocalPath,
-			CertPEM:   string(certPEM),
-			ChainPEM:  chainPEM,
-		})
-	}
-
-	if len(reports) == 0 {
-		return nil
-	}
-
-	resp, err := r.client.ReportCerts(reports)
-	if err != nil {
-		return err
-	}
-	r.logger.Info("Reported deployed cert inventory", zap.Int("recorded", resp.Recorded))
-	return nil
-}
-
-func parseCertificatePEM(certPEM []byte) (*x509.Certificate, error) {
-	block, _ := pem.Decode(certPEM)
-	if block == nil {
-		return nil, fmt.Errorf("failed to decode PEM")
-	}
-	return x509.ParseCertificate(block.Bytes)
 }
 
 func replaceExt(path, oldExt, newExt string) string {

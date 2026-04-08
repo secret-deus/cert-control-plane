@@ -3,7 +3,6 @@ package client
 import (
 	"bytes"
 	"crypto/sha256"
-	"crypto/rsa"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
@@ -77,20 +76,6 @@ type FetchCertsRequest struct {
 // FetchCertsResponse is the batch cert fetch response
 type FetchCertsResponse struct {
 	Updates []CertUpdateItem `json:"updates"`
-}
-
-type DeployedCertReportItem struct {
-	LocalPath string  `json:"local_path"`
-	CertPEM   string  `json:"cert_pem"`
-	ChainPEM  *string `json:"chain_pem,omitempty"`
-}
-
-type ReportCertsRequest struct {
-	Certs []DeployedCertReportItem `json:"certs"`
-}
-
-type ReportCertsResponse struct {
-	Recorded int `json:"recorded"`
 }
 
 // New creates a new ControlPlaneClient (no mTLS)
@@ -248,41 +233,6 @@ func (c *ControlPlaneClient) FetchCerts(checks []CertCheckItem) (*FetchCertsResp
 	return &result, nil
 }
 
-func (c *ControlPlaneClient) ReportCerts(items []DeployedCertReportItem) (*ReportCertsResponse, error) {
-	reqBody := ReportCertsRequest{Certs: items}
-
-	jsonBody, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	reqURL := fmt.Sprintf("%s/api/agent/report-certs", c.baseURL)
-	req, err := http.NewRequest("POST", reqURL, bytes.NewReader(jsonBody))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	c.authHeaders(req)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("report-certs failed: %s - %s", resp.Status, string(body))
-	}
-
-	var result ReportCertsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	return &result, nil
-}
-
 // ComputeFingerprint computes SHA256 of the DER-encoded public key from a PEM private key file
 func ComputeFingerprint(keyPEM []byte) (string, error) {
 	block, _ := pem.Decode(keyPEM)
@@ -297,11 +247,7 @@ func ComputeFingerprint(keyPEM []byte) (string, error) {
 		if err2 != nil {
 			return "", fmt.Errorf("failed to parse private key: %w (pkcs1: %v)", err2, err)
 		}
-		rsaKey, ok := keyAny.(*rsa.PrivateKey)
-		if !ok {
-			return "", fmt.Errorf("unsupported private key type %T", keyAny)
-		}
-		pubDER, err2 := x509.MarshalPKIXPublicKey(&rsaKey.PublicKey)
+		pubDER, err2 := x509.MarshalPKIXPublicKey(keyAny.(*interface{}))
 		if err2 != nil {
 			return "", fmt.Errorf("failed to marshal public key: %w", err2)
 		}

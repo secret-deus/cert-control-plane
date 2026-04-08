@@ -1,5 +1,5 @@
-import { Fragment, useState, useEffect } from 'react';
-import { Server, Plus, X, Clock, UserCheck, UserX, ChevronRight, ShieldCheck, RefreshCw } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Server, Plus, Check, X, Clock, UserCheck, UserX } from 'lucide-react';
 import { apiFetch, apiPost } from '../lib/api';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -12,34 +12,8 @@ interface Agent {
   created_at: string;
 }
 
-interface Assignment {
-  id: string;
-  agent_id: string;
-  external_cert_id: string;
-  local_path: string;
-  created_at: string;
-}
-
-interface AgentCert {
-  id: string;
-  agent_id: string;
-  external_cert_id: string | null;
-  local_path: string | null;
-  serial_hex: string;
-  subject_cn: string;
-  not_before: string;
-  not_after: string;
-  is_current: boolean;
-  revoked_at: string | null;
-  created_at: string;
-}
-
 export default function AgentsPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [expandedAgentId, setExpandedAgentId] = useState<string | null>(null);
-  const [detailsLoading, setDetailsLoading] = useState<Record<string, boolean>>({});
-  const [assignmentsMap, setAssignmentsMap] = useState<Record<string, Assignment[]>>({});
-  const [certsMap, setCertsMap] = useState<Record<string, AgentCert[]>>({});
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
@@ -62,31 +36,6 @@ export default function AgentsPage() {
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(''), 3000);
-  };
-
-  const fetchAgentDetails = async (agentId: string) => {
-    setDetailsLoading(prev => ({ ...prev, [agentId]: true }));
-    try {
-      const [assignments, certs] = await Promise.all([
-        apiFetch<Assignment[]>(`/agents/${agentId}/assignments`),
-        apiFetch<AgentCert[]>(`/agents/${agentId}/certs`),
-      ]);
-      setAssignmentsMap(prev => ({ ...prev, [agentId]: assignments }));
-      setCertsMap(prev => ({ ...prev, [agentId]: certs }));
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load agent certificate status');
-    } finally {
-      setDetailsLoading(prev => ({ ...prev, [agentId]: false }));
-    }
-  };
-
-  const toggleAgentDetails = async (agentId: string) => {
-    if (expandedAgentId === agentId) {
-      setExpandedAgentId(null);
-      return;
-    }
-    setExpandedAgentId(agentId);
-    await fetchAgentDetails(agentId);
   };
 
   const handleCreate = async () => {
@@ -134,113 +83,6 @@ export default function AgentsPage() {
 
   const pendingAgents = agents.filter(a => a.status === 'pending_approval');
   const otherAgents   = agents.filter(a => a.status !== 'pending_approval');
-
-  const renderAgentDetails = (agent: Agent) => {
-    if (expandedAgentId !== agent.id) return null;
-
-    const assignments = assignmentsMap[agent.id] ?? [];
-    const currentCerts = (certsMap[agent.id] ?? []).filter(cert => cert.is_current);
-
-    return (
-      <tr>
-        <td colSpan={6} className="px-4 py-4 bg-[rgba(255,255,255,0.02)]">
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm font-semibold text-white">Certificate Status</div>
-                <div className="text-xs text-[var(--color-text-secondary)]">
-                  Desired assignment versus currently deployed certificate on the agent.
-                </div>
-              </div>
-              {detailsLoading[agent.id] && (
-                <div className="flex items-center gap-2 text-xs text-[var(--color-text-secondary)]">
-                  <RefreshCw size={12} className="animate-spin" />
-                  Refreshing
-                </div>
-              )}
-            </div>
-
-            {assignments.length === 0 ? (
-              <div className="rounded-lg border border-[var(--color-border-subtle)] px-4 py-3 text-sm text-[var(--color-text-secondary)]">
-                No certificate assignments for this agent.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {assignments.map(assignment => {
-                  const deployedCert = currentCerts.find(cert => cert.local_path === assignment.local_path);
-                  const isInSync = deployedCert?.external_cert_id === assignment.external_cert_id;
-                  const statusLabel = !deployedCert
-                    ? 'Pending initial deploy'
-                    : isInSync
-                      ? 'In sync'
-                      : 'Pending update';
-                  const statusClass = !deployedCert
-                    ? 'bg-amber-500/20 text-amber-400'
-                    : isInSync
-                      ? 'bg-emerald-500/20 text-emerald-400'
-                      : 'bg-sky-500/20 text-sky-400';
-
-                  return (
-                    <div key={assignment.id} className="rounded-lg border border-[var(--color-border-subtle)] p-4">
-                      <div className="flex flex-wrap items-center gap-3">
-                        <span className="font-mono text-xs text-[var(--color-text-secondary)]">
-                          {assignment.local_path}
-                        </span>
-                        <span className={`rounded-full px-2 py-1 text-xs font-medium ${statusClass}`}>
-                          {statusLabel}
-                        </span>
-                      </div>
-                      <div className="mt-3 grid gap-3 md:grid-cols-2">
-                        <div className="rounded-lg bg-[var(--color-background-base)] px-3 py-3">
-                          <div className="text-[11px] uppercase tracking-wide text-[var(--color-text-secondary)]">Assigned External Cert</div>
-                          <div className="mt-1 font-mono text-xs text-white">{assignment.external_cert_id}</div>
-                        </div>
-                        <div className="rounded-lg bg-[var(--color-background-base)] px-3 py-3">
-                          <div className="text-[11px] uppercase tracking-wide text-[var(--color-text-secondary)]">Current Deployed Cert</div>
-                          {deployedCert ? (
-                            <div className="mt-1 space-y-1 text-xs text-white">
-                              <div>{deployedCert.subject_cn}</div>
-                              <div className="font-mono text-[var(--color-text-secondary)]">{deployedCert.serial_hex}</div>
-                              <div className="text-[var(--color-text-secondary)]">
-                                Expires {new Date(deployedCert.not_after).toLocaleString()}
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="mt-1 text-xs text-[var(--color-text-secondary)]">
-                              Agent has not reported a deployed certificate for this path yet.
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {currentCerts.length > 0 && (
-              <div className="rounded-lg border border-[var(--color-border-subtle)] px-4 py-3">
-                <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-white">
-                  <ShieldCheck size={14} className="text-emerald-400" />
-                  Current Cert Inventory
-                </div>
-                <div className="space-y-2">
-                  {currentCerts.map(cert => (
-                    <div key={cert.id} className="flex flex-wrap items-center gap-3 text-xs text-[var(--color-text-secondary)]">
-                      <span className="font-mono">{cert.local_path ?? '—'}</span>
-                      <span>{cert.subject_cn}</span>
-                      <span className="font-mono">{cert.serial_hex}</span>
-                      <span>expires {new Date(cert.not_after).toLocaleString()}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </td>
-      </tr>
-    );
-  };
 
   return (
     <div className="space-y-6">
@@ -366,7 +208,6 @@ export default function AgentsPage() {
           <table className="w-full text-sm text-left">
             <thead className="text-xs text-[var(--color-text-secondary)] uppercase bg-[var(--color-background-base)] border-b border-[var(--color-border-subtle)]">
               <tr>
-                <th className="px-4 py-3 w-12"></th>
                 <th className="px-4 py-3">Name</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Fingerprint</th>
@@ -376,9 +217,9 @@ export default function AgentsPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={6} className="px-4 py-8 text-center text-[var(--color-text-secondary)]">Loading…</td></tr>
+                <tr><td colSpan={5} className="px-4 py-8 text-center text-[var(--color-text-secondary)]">Loading…</td></tr>
               ) : otherAgents.length === 0 ? (
-                <tr><td colSpan={6} className="px-4 py-12 text-center text-[var(--color-text-secondary)]">
+                <tr><td colSpan={5} className="px-4 py-12 text-center text-[var(--color-text-secondary)]">
                   <Server size={32} className="mx-auto mb-3 opacity-30" />
                   {agents.length === 0
                     ? 'No agents yet. Create a slot or wait for an agent to self-register.'
@@ -386,39 +227,23 @@ export default function AgentsPage() {
                 </td></tr>
               ) : (
                 otherAgents.map(a => (
-                  <Fragment key={a.id}>
-                    <tr key={a.id} className="border-b border-[var(--color-border-subtle)] hover:bg-[rgba(255,255,255,0.02)] transition-colors">
-                      <td className="px-4 py-3">
-                        <button
-                          type="button"
-                          onClick={() => void toggleAgentDetails(a.id)}
-                          className="rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-white/5 hover:text-white transition-colors"
-                          title="Toggle certificate status"
-                        >
-                          <ChevronRight
-                            size={16}
-                            className={`transition-transform ${expandedAgentId === a.id ? 'rotate-90' : ''}`}
-                          />
-                        </button>
-                      </td>
-                      <td className="px-4 py-3 font-medium text-white">{a.name}</td>
-                      <td className="px-4 py-3">
-                        <span className={`text-xs px-2 py-1 rounded-full font-medium ${statusColor(a.status)}`}>
-                          {a.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 font-mono text-xs text-[var(--color-text-secondary)]">
-                        {a.fingerprint ? `${a.fingerprint.substring(0, 16)}…` : '—'}
-                      </td>
-                      <td className="px-4 py-3 text-xs text-[var(--color-text-secondary)]">
-                        {a.last_seen ? formatDistanceToNow(new Date(a.last_seen), { addSuffix: true }) : 'Never'}
-                      </td>
-                      <td className="px-4 py-3 text-xs text-[var(--color-text-secondary)]">
-                        {formatDistanceToNow(new Date(a.created_at), { addSuffix: true })}
-                      </td>
-                    </tr>
-                    {renderAgentDetails(a)}
-                  </Fragment>
+                  <tr key={a.id} className="border-b border-[var(--color-border-subtle)] hover:bg-[rgba(255,255,255,0.02)] transition-colors">
+                    <td className="px-4 py-3 font-medium text-white">{a.name}</td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs px-2 py-1 rounded-full font-medium ${statusColor(a.status)}`}>
+                        {a.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs text-[var(--color-text-secondary)]">
+                      {a.fingerprint ? `${a.fingerprint.substring(0, 16)}…` : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-[var(--color-text-secondary)]">
+                      {a.last_seen ? formatDistanceToNow(new Date(a.last_seen), { addSuffix: true }) : 'Never'}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-[var(--color-text-secondary)]">
+                      {formatDistanceToNow(new Date(a.created_at), { addSuffix: true })}
+                    </td>
+                  </tr>
                 ))
               )}
             </tbody>

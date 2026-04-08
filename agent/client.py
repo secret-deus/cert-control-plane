@@ -98,19 +98,3 @@ class ControlPlaneClient:
             )
             resp.raise_for_status()
             return resp.json()
-
-    # ------------------------------------------------------------------
-    # POST /api/agent/report-certs
-    # ------------------------------------------------------------------
-
-    def report_certs(self, cert_inventory: list[dict]) -> dict:
-        """Report current locally deployed certificates."""
-        url = f"{self._base}/api/agent/report-certs"
-        with self._make_client() as client:
-            resp = client.post(
-                url,
-                json={"certs": cert_inventory},
-                headers=self._headers(),
-            )
-            resp.raise_for_status()
-            return resp.json()

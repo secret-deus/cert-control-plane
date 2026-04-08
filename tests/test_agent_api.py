@@ -11,12 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.x509.oid import NameOID
-
-from app.models import Agent, AgentCertAssignment, AgentStatus, Certificate, ExternalCertificate
+from app.models import Agent, AgentCertAssignment, AgentStatus, ExternalCertificate
 
 
 # ---------------------------------------------------------------------------
@@ -60,24 +55,6 @@ def _make_ext_cert(
     cert.key_pem_encrypted = "encrypted-key-data"
     cert.not_after = not_after or (datetime.now(tz=timezone.utc) + timedelta(days=365))
     return cert
-
-
-def _build_cert_pem(common_name: str = "example.com") -> str:
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    subject = issuer = x509.Name([
-        x509.NameAttribute(NameOID.COMMON_NAME, common_name),
-    ])
-    cert = (
-        x509.CertificateBuilder()
-        .subject_name(subject)
-        .issuer_name(issuer)
-        .public_key(key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(datetime.now(tz=timezone.utc) - timedelta(days=1))
-        .not_valid_after(datetime.now(tz=timezone.utc) + timedelta(days=30))
-        .sign(key, hashes.SHA256())
-    )
-    return cert.public_bytes(serialization.Encoding.PEM).decode()
 
 
 # ---------------------------------------------------------------------------
@@ -509,64 +486,3 @@ class TestFetchCerts:
         assert resp.status_code == 200
         data = resp.json()
         assert data["updates"][0]["has_update"] is False
-
-
-class TestReportCerts:
-
-    @pytest.mark.asyncio
-    async def test_report_certs_records_current_cert(self, client):
-        token = "agent-token"
-        agent = _make_agent(status=AgentStatus.ACTIVE, agent_token=token)
-
-        current = MagicMock(spec=Certificate)
-        current.serial_hex = "oldserial"
-        current.is_current = True
-        current.revoked_at = None
-
-        ext_cert = _make_ext_cert()
-        cert_pem = _build_cert_pem("api.example.com")
-        parsed = x509.load_pem_x509_certificate(cert_pem.encode())
-        ext_cert.serial_hex = format(parsed.serial_number, "x").lower()
-        ext_cert.id = uuid.uuid4()
-
-        call_count = 0
-
-        def mock_execute(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            result = MagicMock()
-            if call_count == 1:
-                result.scalar_one_or_none.return_value = agent
-            elif call_count == 2:
-                result.scalar_one_or_none.return_value = ext_cert
-            else:
-                result.scalar_one_or_none.return_value = current
-            return result
-
-        mock_db = AsyncMock()
-        mock_db.execute = AsyncMock(side_effect=mock_execute)
-        mock_db.commit = AsyncMock()
-        mock_db.add = MagicMock()
-
-        from app.database import get_db
-        client._transport.app.dependency_overrides[get_db] = lambda: mock_db
-
-        resp = await client.post(
-            "/api/agent/report-certs",
-            json={"certs": [{
-                "local_path": "/etc/nginx/certs/api.example.com.crt",
-                "cert_pem": cert_pem,
-                "chain_pem": None,
-            }]},
-            headers={"X-Agent-Token": token},
-        )
-
-        assert resp.status_code == 200
-        assert resp.json()["recorded"] == 1
-        assert current.is_current is False
-        assert current.revoked_at is not None
-
-        added_objects = [call.args[0] for call in mock_db.add.call_args_list]
-        inserted = added_objects[-1]
-        assert inserted.local_path == "/etc/nginx/certs/api.example.com.crt"
-        assert inserted.external_cert_id == ext_cert.id

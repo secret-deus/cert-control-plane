@@ -110,23 +110,6 @@ class AgentFetchCertsResponse(BaseModel):
     updates: list[CertUpdateItem]
 
 
-class DeployedCertReportItem(BaseModel):
-    """One currently deployed cert on the agent host."""
-    local_path: str
-    cert_pem: str
-    chain_pem: str | None = None
-
-
-class AgentReportCertsRequest(BaseModel):
-    """Current cert inventory reported by the agent."""
-    certs: list[DeployedCertReportItem]
-
-
-class AgentReportCertsResponse(BaseModel):
-    """Result of syncing current cert inventory."""
-    recorded: int
-
-
 # ---------------------------------------------------------------------------
 # External Certificate (uploaded from providers like 阿里云, Let's Encrypt)
 # ---------------------------------------------------------------------------
@@ -208,7 +191,6 @@ class CertSummary(BaseModel):
     id: uuid.UUID
     agent_id: uuid.UUID
     external_cert_id: uuid.UUID | None
-    local_path: str | None
     serial_hex: str
     subject_cn: str
     not_before: datetime

@@ -71,31 +71,31 @@ Cert Control Plane 是一个 TLS 证书生命周期管理系统，当前采用 *
 | Dashboard 可视化 | ✅ | Agent 状态、证书到期、审计事件 |
 | Rollout 批量编排 | ✅ | 分批推进、暂停、恢复、失败、回滚 |
 
-### Phase 2: 测试与一致性修复 [进行中]
+### Phase 2: 测试与一致性修复 [基本完成]
 
 目标: 提高测试可信度，收敛文档与实现。
 
 | 任务 | 状态 | 说明 |
 |------|------|------|
-| TASK-P2-1: 文档口径统一 | 进行中 | 全部移除 CSR/自签发叙事，统一为外部证书分发模式 |
-| TASK-P2-2: Agent API 测试补强 | 进行中 | 重点覆盖 `fetch-certs` 判定、无分配/旧证书/新证书场景 |
-| TASK-P2-3: Rollout 测试修复 | 待开始 | 解决 `AsyncMock` 导致的 `db.add()` RuntimeWarning |
-| TASK-P2-4: Assignment 与证书链路测试 | 待开始 | 上传外部证书 -> 分配 -> Agent 拉取更新 |
-| TASK-P2-5: Dashboard 告警测试 | 待开始 | Agent 证书与外部证书 30 天内到期视图 |
-| TASK-P2-6: Registry/Store 测试 | 待开始 | `get_current_cert` / `revoke_cert` |
+| TASK-P2-1: 文档口径统一 | ✅ 已完成 | 主文档、OpenAPI 描述、安装入口统一为外部证书分发模式 |
+| TASK-P2-2: Agent API 测试补强 | ✅ 已完成 | 已覆盖 `fetch-certs` 判定、无分配/旧证书/新证书场景 |
+| TASK-P2-3: Rollout 测试修复 | ✅ 已完成 | 已清理 `AsyncMock` 误用导致的 warnings |
+| TASK-P2-4: Assignment 与证书链路测试 | ✅ 已完成 | 已覆盖上传外部证书 -> 分配 -> Agent 拉取更新链路 |
+| TASK-P2-5: Dashboard 告警测试 | ✅ 已完成 | 已覆盖 `external-certs-expiry`、`cert-alerts` 视图 |
+| TASK-P2-6: Registry/Store 测试 | 待处理 | 当前仍需确认历史 `revoke_cert` 语义是否保留 |
 
-### Phase 3: 生产就绪 [待开始]
+### Phase 3: 生产就绪 [进行中]
 
 目标: 从“功能可用”提升到“可部署、可验证、可回滚”。
 
 | 任务 | 状态 | 说明 |
 |------|------|------|
 | TASK-P3-1: 前端 E2E 测试 | 待开始 | 选择 Playwright，覆盖登录、Agent、证书、Rollout 页面 |
-| TASK-P3-2: 集成联调环境 | 待开始 | PostgreSQL + nginx + Agent 真实链路验证 |
+| TASK-P3-2: 集成联调环境 | 进行中 | 已有 Docker Compose + nginx + Agent live smoke，仍需补更系统化回归 |
 | TASK-P3-3: 性能测试 | 待开始 | 并发 Agent 心跳与批量 `fetch-certs` 压测 |
 | TASK-P3-4: 安全审计 | 待开始 | 依赖扫描、密钥处理检查、认证流程审查 |
 | TASK-P3-5: 观测与告警 | 待开始 | 健康检查、失败日志、证书到期告警 |
-| TASK-P3-6: 部署文档 | 待开始 | Docker Compose 部署指南，随后补 K8s |
+| TASK-P3-6: 部署文档 | 进行中 | 已补 Compose/smoke 文档，后续仍需补生产部署与运维说明 |
 
 ### Phase 4: 上游自动续期扩展 [规划中]
 
@@ -112,24 +112,35 @@ Cert Control Plane 是一个 TLS 证书生命周期管理系统，当前采用 *
 
 ## 测试覆盖情况
 
-### 当前测试状态 (2026-03-31)
+### 当前测试状态 (2026-04-03)
 
 | 文件 | 状态 | 覆盖范围 |
 |------|------|----------|
 | `tests/test_agent_api.py` | ✅ | Agent 注册、审批轮询、心跳、`fetch-certs` |
 | `tests/test_agent_auth.py` | ✅ | Agent Token 认证 |
 | `tests/test_control_api.py` | ✅ | Agent、外部证书、Rollout、审计、证书查询 |
-| `tests/test_dashboard.py` | ✅ | Dashboard 汇总与鉴权 |
+| `tests/test_dashboard.py` | ✅ | Dashboard 汇总、外部证书到期、Agent 证书告警 |
 | `tests/test_rollout.py` | ✅ | Rollout 创建、推进、超时、失败、回滚、暂停恢复 |
 | `tests/test_migration.py` | ✅ | Alembic 迁移校验 |
 | `tests/test_installer.py` | ✅ | Agent 安装脚本路径与烟雾检查 |
 | `tests/test_audit_actions.py` | ✅ | 审计动作对齐 |
 | `tests/test_serial_hex.py` | ✅ | 加密辅助函数与序列号兼容 |
+| `tests/test_distribution_integration.py` | ✅ | SQLite 下的上传、分配、拉取分发链路 |
+| `tests/test_agent_deploy.py` | ✅ | Agent 本地写盘、reload、失败回滚 |
+| `tests/test_healthz.py` | ✅ | `/healthz` 路由与 SPA 回退顺序 |
 
 **当前结果**:
 
-- `84 passed`
-- 仍有 `13` 个 warnings，主要来自 `tests/test_rollout.py` 的 mock 配置
+- `101 passed`
+- Python Agent live smoke 已通过
+- Go 二进制 Agent live smoke 已通过
+
+### 今日进展记录 (2026-04-03)
+
+- 已完成外部证书 ZIP 上传、外部证书删除、Agent 当前证书状态回传与前端展示
+- 已完成 Docker Compose + nginx + Agent 的真实更新链路 smoke
+- 已补 Go 版纯二进制 Agent，可构建、可分发、可通过 live smoke
+- 已产出 `agent-go/dist/` 下的 `darwin-arm64`、`linux-amd64`、`linux-arm64` 二进制
 
 ### 运行命令
 
@@ -151,8 +162,8 @@ python3 -m pytest tests/ -v --cov=app --cov=agent
 | 里程碑 | 目标日期 | 状态 |
 |--------|----------|------|
 | M1: 分发闭环完成 | 2026-03-15 | ✅ 已完成 |
-| M2: 文档与测试基线收敛 | 2026-04-15 | 🔄 进行中 |
-| M3: 集成联调环境可复现 | 2026-04-30 | ⏳ 待开始 |
+| M2: 文档与测试基线收敛 | 2026-04-15 | ✅ 已完成 |
+| M3: 集成联调环境可复现 | 2026-04-30 | 🔄 进行中 |
 | M4: 首个可上线版本 | 2026-05-15 | ⏳ 待开始 |
 | M5: Provider 自动续期 PoC | 2026-06-15 | ⏳ 规划中 |
 
@@ -166,11 +177,11 @@ python3 -m pytest tests/ -v --cov=app --cov=agent
 - 风险: 新成员若误读归档文档，可能继续沿旧模型开发
 - 对策: 明确 `PLAN.md` 与 `README.md` 为当前权威来源
 
-### R2. 测试偏 mock，真实链路验证不足
+### R2. 测试偏 mock，真实链路验证仍需继续增强
 
-- 现有测试大多通过 `AsyncMock` 驱动
-- 风险: 实际数据库、nginx、Agent 联调问题无法提前暴露
-- 对策: 增加 SQLite/PostgreSQL 集成测试和真实 Agent smoke test
+- 现有单元测试仍以 mock 为主，但已补 SQLite 集成测试与 live smoke
+- 风险: 还缺少更稳定的长期回归环境与前端 E2E
+- 对策: 保留 smoke 工具并继续补 Playwright 与 PostgreSQL 持续回归
 
 ### R3. 30 天能力目前是“预警”，不是“自动续期”
 
@@ -196,11 +207,12 @@ python3 -m pytest tests/ -v --cov=app --cov=agent
 
 ### 待处理
 
-- [ ] 修复 `tests/test_rollout.py` 中 `db.add()` 的 RuntimeWarning
-- [ ] 补齐 Assignment -> `fetch-certs` -> 证书审计记录的完整测试链路
-- [ ] 增加 Dashboard 到期告警接口测试
+- [x] 修复 `tests/test_rollout.py` 中 `db.add()` 的 RuntimeWarning
+- [x] 补齐 Assignment -> `fetch-certs` -> 证书审计记录的完整测试链路
+- [x] 增加 Dashboard 到期告警接口测试
 - [ ] 为前端增加 E2E 测试基建
-- [ ] 继续清理剩余历史文档与部署说明
+- [ ] 明确 `Registry/Store` 层保留范围，决定是否继续保留 `revoke_cert` 语义
+- [ ] 推进 `agent-rust/` 到可构建、可 smoke 的最低可用标准
 
 ---
 
@@ -208,22 +220,23 @@ python3 -m pytest tests/ -v --cov=app --cov=agent
 
 建议按以下顺序继续开发，优先解决“可验证性”和“真实链路闭环”：
 
-### Sprint 1: 测试可信度提升
+### Sprint 1: 测试可信度提升 [已完成]
 
 | 任务 | 优先级 | 目标 |
 |------|--------|------|
-| NEXT-001: 修复 Rollout 测试 warnings | P0 | 清除 `tests/test_rollout.py` 中 `AsyncMock` 误用 |
-| NEXT-002: Assignment -> fetch-certs 集成测试 | P0 | 用真实 SQLite session 验证上传、分配、拉取更新链路 |
-| NEXT-003: Dashboard 告警测试补齐 | P1 | 覆盖 `external-certs-expiry`、`cert-alerts` |
-| NEXT-004: 启动脚本与安装脚本回归 | P1 | 验证入口脚本和示例配置与当前模式一致 |
+| NEXT-001: 修复 Rollout 测试 warnings | ✅ | 已完成 |
+| NEXT-002: Assignment -> fetch-certs 集成测试 | ✅ | 已完成 |
+| NEXT-003: Dashboard 告警测试补齐 | ✅ | 已完成 |
+| NEXT-004: 启动脚本与安装脚本回归 | ✅ | 已完成 |
 
-### Sprint 2: 真实运行链路验证
+### Sprint 2: 真实运行链路验证 [进行中]
 
 | 任务 | 优先级 | 目标 |
 |------|--------|------|
-| NEXT-005: docker-compose 烟雾测试 | P0 | 验证 443/8443 路由、API 可访问性、前后端基本可用 |
-| NEXT-006: Agent 本地部署 smoke test | P1 | 临时目录下验证证书写入、备份、回滚、reload 失败恢复 |
-| NEXT-007: Rollout 与分发链路对齐 | P1 | 明确当前 Rollout 为 agent 级批次窗口；若要按 `agent + local_path + external_cert` 精确追踪需重构模型 |
+| NEXT-005: docker-compose 烟雾测试 | ✅ | 已完成，443/8443 与 `/healthz` 已验证 |
+| NEXT-006: Agent 本地部署 smoke test | ✅ | 已完成，覆盖写盘、备份、回滚、reload 失败恢复 |
+| NEXT-007: Rollout 与分发链路对齐 | 进行中 | 当前模型可运行，但精细化追踪仍需设计收敛 |
+| NEXT-011: Go Agent 二进制 smoke | ✅ | 已完成，纯二进制 Agent 可通过 live smoke |
 
 ### Sprint 3: 交付质量补强
 
@@ -232,6 +245,7 @@ python3 -m pytest tests/ -v --cov=app --cov=agent
 | NEXT-008: 前端 Playwright 基建 | P1 | 覆盖登录、Agent、外部证书、Rollout 页面 |
 | NEXT-009: 部署文档收敛 | P1 | Docker Compose 实战步骤、常见问题、故障排查 |
 | NEXT-010: 观测与告警 | P2 | 健康检查、错误日志、证书到期告警机制落地 |
+| NEXT-012: Rust Agent 最低可用版本 | P1 | 可构建、可出单文件、可通过 smoke |
 
 ---
 
