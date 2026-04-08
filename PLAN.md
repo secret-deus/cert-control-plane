@@ -213,8 +213,8 @@ python3 -m pytest tests/ -v --cov=app --cov=agent
 - [x] 完成生产部署文档和运维手册
 - [x] 完成前端 E2E 测试基建
 - [x] 完成结构化日志和告警配置
+- [x] 完成 Rust Agent 文档和发布流程
 - [ ] 明确 `Registry/Store` 层保留范围，决定是否继续保留 `revoke_cert` 语义
-- [ ] 推进 `agent-rust/` 到可构建、可 smoke 的最低可用标准
 
 ---
 
@@ -240,14 +240,14 @@ python3 -m pytest tests/ -v --cov=app --cov=agent
 | NEXT-007: Rollout 与分发链路对齐 | ✅ | 已完成，测试 warnings 已修复 |
 | NEXT-011: Go Agent 二进制 smoke | ✅ | 已完成，纯二进制 Agent 可通过 live smoke |
 
-### Sprint 3: 交付质量补强 [进行中]
+### Sprint 3: 交付质量补强 [已完成]
 
 | 任务 | 优先级 | 目标 |
 |------|--------|------|
 | NEXT-008: 前端 Playwright 基建 | ✅ | 已完成测试框架，覆盖登录、Agent、外部证书、Rollout 页面 |
 | NEXT-009: 部署文档收敛 | ✅ | 已完成生产部署指南、运维手册 |
 | NEXT-010: 观测与告警 | ✅ | 已完成结构化日志、告警配置文档 |
-| NEXT-012: Rust Agent 最低可用版本 | P1 | 可构建、可出单文件、可通过 smoke |
+| NEXT-012: Rust Agent 最低可用版本 | ✅ | 已完成 README、构建脚本、发布 workflow、Agent 对比文档 |
 
 ---
 
@@ -309,7 +309,13 @@ python3 -m pytest tests/ -v --cov=app --cov=agent
 - 完成结构化日志配置和告警文档
 - 支持 JSON 和文本格式日志
 - 提供完整的告警集成指南
-- 更新 Sprint 2 和 Sprint 3 状态
+- 完成 Rust Agent 文档和发布流程
+- 创建完整的 README 和配置指南
+- 添加 macOS 构建脚本
+- 创建 GitHub Actions 发布 workflow
+- 编写 Agent 对比文档
+- Sprint 3 全部完成
+- 里程碑 M3 完成
 
 ### 2026-03-31
 
