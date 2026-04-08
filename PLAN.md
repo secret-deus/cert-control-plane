@@ -210,6 +210,7 @@ python3 -m pytest tests/ -v --cov=app --cov=agent
 - [x] 修复 `tests/test_rollout.py` 中 `db.add()` 的 RuntimeWarning
 - [x] 补齐 Assignment -> `fetch-certs` -> 证书审计记录的完整测试链路
 - [x] 增加 Dashboard 到期告警接口测试
+- [x] 完成生产部署文档和运维手册
 - [ ] 为前端增加 E2E 测试基建
 - [ ] 明确 `Registry/Store` 层保留范围，决定是否继续保留 `revoke_cert` 语义
 - [ ] 推进 `agent-rust/` 到可构建、可 smoke 的最低可用标准
@@ -229,21 +230,21 @@ python3 -m pytest tests/ -v --cov=app --cov=agent
 | NEXT-003: Dashboard 告警测试补齐 | ✅ | 已完成 |
 | NEXT-004: 启动脚本与安装脚本回归 | ✅ | 已完成 |
 
-### Sprint 2: 真实运行链路验证 [进行中]
+### Sprint 2: 真实运行链路验证 [已完成]
 
 | 任务 | 优先级 | 目标 |
 |------|--------|------|
 | NEXT-005: docker-compose 烟雾测试 | ✅ | 已完成，443/8443 与 `/healthz` 已验证 |
 | NEXT-006: Agent 本地部署 smoke test | ✅ | 已完成，覆盖写盘、备份、回滚、reload 失败恢复 |
-| NEXT-007: Rollout 与分发链路对齐 | 进行中 | 当前模型可运行，但精细化追踪仍需设计收敛 |
+| NEXT-007: Rollout 与分发链路对齐 | ✅ | 已完成，测试 warnings 已修复 |
 | NEXT-011: Go Agent 二进制 smoke | ✅ | 已完成，纯二进制 Agent 可通过 live smoke |
 
-### Sprint 3: 交付质量补强
+### Sprint 3: 交付质量补强 [进行中]
 
 | 任务 | 优先级 | 目标 |
 |------|--------|------|
 | NEXT-008: 前端 Playwright 基建 | P1 | 覆盖登录、Agent、外部证书、Rollout 页面 |
-| NEXT-009: 部署文档收敛 | P1 | Docker Compose 实战步骤、常见问题、故障排查 |
+| NEXT-009: 部署文档收敛 | ✅ | 已完成生产部署指南、运维手册 |
 | NEXT-010: 观测与告警 | P2 | 健康检查、错误日志、证书到期告警机制落地 |
 | NEXT-012: Rust Agent 最低可用版本 | P1 | 可构建、可出单文件、可通过 smoke |
 
@@ -295,6 +296,14 @@ python3 -m pytest tests/ -v --cov=app --cov=agent
 ---
 
 ## 变更日志
+
+### 2026-04-08
+
+- 修复 `tests/test_rollout.py` 中的 RuntimeWarning（AsyncMock 误用）
+- 完成生产部署文档 `docs/deployment-production.md`
+- 包含部署架构、配置清单、运维手册、故障排查、安全最佳实践
+- 更新 Sprint 2 状态为已完成
+- 开始 Sprint 3 交付质量补强
 
 ### 2026-03-31
 

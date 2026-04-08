@@ -114,6 +114,10 @@ class MockDBBuilder:
     def build(self) -> AsyncMock:
         self._session.execute.side_effect = self._execute_results
         self._session.get = AsyncMock(return_value=None)
+        # add() and flush() are sync methods, should return MagicMock not coroutine
+        self._session.add = MagicMock()
+        self._session.flush = AsyncMock()
+        self._session.commit = AsyncMock()
         return self._session
 
 
@@ -291,6 +295,9 @@ class TestRollback:
         agent = _make_agent("test-agent")
 
         session = AsyncMock()
+        # add() and flush() are sync methods
+        session.add = MagicMock()
+        session.flush = AsyncMock()
 
         # First execute returns items, subsequent executes (updates) return default
         first_call = True
@@ -343,6 +350,9 @@ class TestPauseResume:
     async def test_pause_resume_cycle(self):
         rollout = _make_rollout(status=RolloutStatus.RUNNING)
         db = AsyncMock()
+        # add() and flush() are sync methods
+        db.add = MagicMock()
+        db.flush = AsyncMock()
 
         with patch("app.orchestrator.rollout.write_audit", new_callable=AsyncMock):
             paused = await pause_rollout(db, rollout, actor="admin")
