@@ -211,7 +211,8 @@ python3 -m pytest tests/ -v --cov=app --cov=agent
 - [x] 补齐 Assignment -> `fetch-certs` -> 证书审计记录的完整测试链路
 - [x] 增加 Dashboard 到期告警接口测试
 - [x] 完成生产部署文档和运维手册
-- [ ] 为前端增加 E2E 测试基建
+- [x] 完成前端 E2E 测试基建
+- [x] 完成结构化日志和告警配置
 - [ ] 明确 `Registry/Store` 层保留范围，决定是否继续保留 `revoke_cert` 语义
 - [ ] 推进 `agent-rust/` 到可构建、可 smoke 的最低可用标准
 
@@ -243,9 +244,9 @@ python3 -m pytest tests/ -v --cov=app --cov=agent
 
 | 任务 | 优先级 | 目标 |
 |------|--------|------|
-| NEXT-008: 前端 Playwright 基建 | 进行中 | 已安装依赖，创建测试框架，覆盖登录、Agent、外部证书、Rollout 页面 |
+| NEXT-008: 前端 Playwright 基建 | ✅ | 已完成测试框架，覆盖登录、Agent、外部证书、Rollout 页面 |
 | NEXT-009: 部署文档收敛 | ✅ | 已完成生产部署指南、运维手册 |
-| NEXT-010: 观测与告警 | P2 | 健康检查、错误日志、证书到期告警机制落地 |
+| NEXT-010: 观测与告警 | ✅ | 已完成结构化日志、告警配置文档 |
 | NEXT-012: Rust Agent 最低可用版本 | P1 | 可构建、可出单文件、可通过 smoke |
 
 ---
@@ -302,8 +303,13 @@ python3 -m pytest tests/ -v --cov=app --cov=agent
 - 修复 `tests/test_rollout.py` 中的 RuntimeWarning（AsyncMock 误用）
 - 完成生产部署文档 `docs/deployment-production.md`
 - 包含部署架构、配置清单、运维手册、故障排查、安全最佳实践
-- 更新 Sprint 2 状态为已完成
-- 开始 Sprint 3 交付质量补强
+- 完成 Playwright E2E 测试基建
+- 覆盖登录、Agent、外部证书、Rollout 页面
+- 集成到 CI 流程
+- 完成结构化日志配置和告警文档
+- 支持 JSON 和文本格式日志
+- 提供完整的告警集成指南
+- 更新 Sprint 2 和 Sprint 3 状态
 
 ### 2026-03-31
 

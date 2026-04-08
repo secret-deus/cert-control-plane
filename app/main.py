@@ -11,9 +11,13 @@ from app.api.agent import router as agent_router
 from app.api.control import router as control_router
 from app.api.dashboard import router as dashboard_router
 from app.config import get_settings
+from app.core.logging_config import setup_logging
 from app.database import check_db, create_tables, dispose_engine
 from app.orchestrator.rollout import advance_all_rollouts
 import app.models  # noqa: F401  ensure models registered with Base
+
+# Setup logging
+setup_logging()
 
 logger = logging.getLogger(__name__)
 

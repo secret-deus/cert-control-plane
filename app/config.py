@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     default_batch_size: int = 10
     rollout_item_timeout_minutes: int = 10
 
+    # Logging
+    log_level: str = "INFO"
+    log_format: str = "json"  # "json" or "text"
+
     @model_validator(mode="after")
     def _check_required(self):
         if not self.admin_api_key:
