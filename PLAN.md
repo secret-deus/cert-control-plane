@@ -214,7 +214,14 @@ python3 -m pytest tests/ -v --cov=app --cov=agent
 - [x] 完成前端 E2E 测试基建
 - [x] 完成结构化日志和告警配置
 - [x] 完成 Rust Agent 文档和发布流程
-- [ ] 明确 `Registry/Store` 层保留范围，决定是否继续保留 `revoke_cert` 语义
+
+### M4 准备工作 (进行中)
+
+- [x] 性能测试框架（Locust 脚本）
+- [x] 安全审计检查清单
+- [ ] 性能基准测试执行
+- [ ] 依赖漏洞扫描
+- [ ] 预生产环境部署验证
 
 ---
 
