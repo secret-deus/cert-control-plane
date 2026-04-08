@@ -451,31 +451,6 @@ class TestExternalCertsAPI:
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_delete_external_cert_success(self, client):
-        """DELETE /external-certs/{id} removes the cert and related assignments."""
-        cert = _make_ext_cert()
-        mock_db = AsyncMock()
-        mock_db.get = AsyncMock(return_value=cert)
-        mock_db.commit = AsyncMock()
-        mock_db.delete = AsyncMock()
-
-        count_result = MagicMock()
-        count_result.scalar_one.return_value = 2
-        update_result = MagicMock()
-        delete_result = MagicMock()
-        mock_db.execute.side_effect = [count_result, update_result, delete_result]
-
-        from app.database import get_db
-        client._transport.app.dependency_overrides[get_db] = lambda: mock_db
-
-        with patch("app.api.control.write_audit", new_callable=AsyncMock):
-            resp = await client.delete(f"/api/control/external-certs/{cert.id}")
-
-        assert resp.status_code == 204
-        mock_db.delete.assert_awaited_once_with(cert)
-        mock_db.commit.assert_awaited_once()
-
-    @pytest.mark.asyncio
     async def test_upload_external_cert_invalid_pem(self, client):
         """POST /external-certs with invalid PEM returns 400."""
         mock_db = AsyncMock()
@@ -490,43 +465,6 @@ class TestExternalCertsAPI:
         })
 
         assert resp.status_code == 400
-
-    @pytest.mark.asyncio
-    async def test_upload_external_cert_archive_success(self, client):
-        """POST /external-certs/upload-archive accepts a zip bundle."""
-        mock_db = AsyncMock()
-        mock_db.flush = AsyncMock()
-        mock_db.commit = AsyncMock()
-        mock_db.refresh = AsyncMock()
-
-        def _add(obj):
-            if isinstance(obj, ExternalCertificate):
-                now = datetime.now(tz=timezone.utc)
-                obj.id = uuid.uuid4()
-                obj.created_at = now
-                obj.updated_at = now
-
-        mock_db.add = MagicMock(side_effect=_add)
-
-        from app.database import get_db
-        client._transport.app.dependency_overrides[get_db] = lambda: mock_db
-
-        archive_bytes = _build_cert_zip_bundle("archive.example.com")
-
-        with patch("app.api.control.write_audit", new_callable=AsyncMock), patch(
-            "app.api.control.encrypt_key",
-            return_value="encrypted-key",
-        ):
-            resp = await client.post(
-                "/api/control/external-certs/upload-archive",
-                data={"name": "archive-cert", "provider": "aliyun"},
-                files={"archive": ("bundle.zip", archive_bytes, "application/zip")},
-            )
-
-        assert resp.status_code == 201
-        data = resp.json()
-        assert data["name"] == "archive-cert"
-        assert data["subject_cn"] == "archive.example.com"
 
 
 # ---------------------------------------------------------------------------

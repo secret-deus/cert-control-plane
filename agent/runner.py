@@ -236,11 +236,14 @@ def _deploy_cert_update(config: AgentConfig, update: dict) -> None:
     # Backup existing files
     old_cert = p.with_suffix(".crt.old")
     old_key = key_path.with_suffix(".key.old")
+    old_chain = chain_path.with_suffix(".chain.crt.old")
 
     if p.exists():
         _backup(p, old_cert)
     if key_path.exists():
         _backup(key_path, old_key)
+    if chain_path.exists():
+        _backup(chain_path, old_chain)
 
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -274,6 +277,7 @@ def _deploy_cert_update(config: AgentConfig, update: dict) -> None:
         # Clean up backups
         old_cert.unlink(missing_ok=True)
         old_key.unlink(missing_ok=True)
+        old_chain.unlink(missing_ok=True)
 
     except Exception:
         logger.exception("Failed to deploy cert to %s, restoring backups", local_path)
@@ -281,6 +285,8 @@ def _deploy_cert_update(config: AgentConfig, update: dict) -> None:
             _restore(old_cert, p)
         if old_key.exists():
             _restore(old_key, key_path)
+        if old_chain.exists():
+            _restore(old_chain, chain_path)
         raise
 
 

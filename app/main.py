@@ -123,7 +123,15 @@ def create_app() -> FastAPI:
         if os.path.isdir(assets_dir):
             app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
-    # SPA catch-all: serve index.html for all non-API routes
+    @app.get("/healthz", tags=["health"], summary="健康检查")
+    async def healthz():
+        db_ok = await check_db()
+        return {
+            "status": "ok" if db_ok else "degraded",
+            "db": "connected" if db_ok else "unreachable",
+        }
+
+    # SPA catch-all: serve index.html for all non-API routes (must be last)
     @app.get("/{path:path}", response_class=HTMLResponse, include_in_schema=False)
     async def spa_fallback(path: str):
         # Don't intercept API/docs routes
@@ -137,14 +145,6 @@ def create_app() -> FastAPI:
             content="Dashboard not built. Run 'npm run build' in frontend/ or use 'npm run dev' for development.",
             status_code=200,
         )
-
-    @app.get("/healthz", tags=["health"], summary="健康检查")
-    async def healthz():
-        db_ok = await check_db()
-        return {
-            "status": "ok" if db_ok else "degraded",
-            "db": "connected" if db_ok else "unreachable",
-        }
 
     return app
 

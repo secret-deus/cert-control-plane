@@ -191,6 +191,7 @@ class CertSummary(BaseModel):
     id: uuid.UUID
     agent_id: uuid.UUID
     external_cert_id: uuid.UUID | None
+    local_path: str | None
     serial_hex: str
     subject_cn: str
     not_before: datetime

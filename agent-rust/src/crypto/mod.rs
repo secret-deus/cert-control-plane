@@ -8,6 +8,7 @@ use rand::rngs::OsRng;
 use std::fs;
 use std::path::Path;
 use x509_cert::der::Decode;
+use x509_cert::time::Time;
 
 /// Generate a new RSA key pair (2048 bits)
 pub fn generate_key_pair() -> Result<RsaPrivateKey> {
@@ -94,10 +95,10 @@ pub fn read_cert_not_after(path: &Path) -> Option<String> {
     let not_after = cert.tbs_certificate.validity.not_after;
 
     let unix_secs: i64 = match not_after {
-        x509_cert::der::asn1::Time::UtcTime(t) => {
+        Time::UtcTime(t) => {
             t.to_date_time().unix_duration().as_secs() as i64
         }
-        x509_cert::der::asn1::Time::GeneralizedTime(t) => {
+        Time::GeneralTime(t) => {
             t.to_date_time().unix_duration().as_secs() as i64
         }
     };
@@ -111,6 +112,7 @@ pub fn read_cert_not_after(path: &Path) -> Option<String> {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+    use rsa::traits::PublicKeyParts;
 
     #[test]
     fn test_generate_key_pair() {
