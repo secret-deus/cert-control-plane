@@ -243,7 +243,7 @@ python3 -m pytest tests/ -v --cov=app --cov=agent
 
 | 任务 | 优先级 | 目标 |
 |------|--------|------|
-| NEXT-008: 前端 Playwright 基建 | P1 | 覆盖登录、Agent、外部证书、Rollout 页面 |
+| NEXT-008: 前端 Playwright 基建 | 进行中 | 已安装依赖，创建测试框架，覆盖登录、Agent、外部证书、Rollout 页面 |
 | NEXT-009: 部署文档收敛 | ✅ | 已完成生产部署指南、运维手册 |
 | NEXT-010: 观测与告警 | P2 | 健康检查、错误日志、证书到期告警机制落地 |
 | NEXT-012: Rust Agent 最低可用版本 | P1 | 可构建、可出单文件、可通过 smoke |
