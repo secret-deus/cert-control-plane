@@ -19,7 +19,17 @@ from app.config import get_settings
 from app.core.audit import write_audit
 from app.core.crypto import decrypt_key
 from app.database import get_db
-from app.models import Agent, AgentCertAssignment, AgentStatus, ExternalCertificate
+from app.models import (
+    Agent,
+    AgentCertAssignment,
+    AgentStatus,
+    ExternalCertificate,
+    Rollout,
+    RolloutItem,
+    RolloutItemStatus,
+    RolloutStatus,
+)
+from app.registry.store import get_current_cert, record_deployed_cert
 from app.schemas import (
     AgentFetchCertsRequest,
     AgentFetchCertsResponse,
@@ -64,6 +74,83 @@ async def _resolve_agent_by_token(
             detail="Invalid or inactive agent token",
         )
     return agent
+
+
+async def _get_active_rollout_item(
+    db: AsyncSession,
+    *,
+    agent_id,
+) -> RolloutItem | None:
+    """Return the active rollout item that currently gates this agent, if any."""
+    result = await db.execute(
+        select(RolloutItem)
+        .join(Rollout, Rollout.id == RolloutItem.rollout_id)
+        .where(
+            RolloutItem.agent_id == agent_id,
+            Rollout.status == RolloutStatus.RUNNING,
+            RolloutItem.status.in_(
+                (RolloutItemStatus.PENDING, RolloutItemStatus.IN_PROGRESS)
+            ),
+        )
+        .order_by(Rollout.created_at.asc(), RolloutItem.batch_number.asc())
+    )
+    items = list(result.scalars().all())
+    for item in items:
+        if item.status == RolloutItemStatus.IN_PROGRESS:
+            return item
+    return items[0] if items else None
+
+
+async def _complete_rollout_item_if_ready(
+    db: AsyncSession,
+    *,
+    agent: Agent,
+    rollout_item: RolloutItem | None,
+) -> None:
+    """Mark an in-progress rollout item completed once all assignments are current."""
+    if rollout_item is None or rollout_item.status != RolloutItemStatus.IN_PROGRESS:
+        return
+
+    now = datetime.now(tz=timezone.utc)
+    result = await db.execute(
+        select(AgentCertAssignment, ExternalCertificate)
+        .join(
+            ExternalCertificate,
+            ExternalCertificate.id == AgentCertAssignment.external_cert_id,
+        )
+        .where(
+            AgentCertAssignment.agent_id == agent.id,
+            ExternalCertificate.is_active.is_(True),
+        )
+    )
+    assignments = list(result.all())
+
+    latest_current = None
+    if not assignments:
+        rollout_item.status = RolloutItemStatus.COMPLETED
+        rollout_item.completed_at = now
+        db.add(rollout_item)
+        return
+
+    for assignment, ext_cert in assignments:
+        current = await get_current_cert(
+            db,
+            agent.id,
+            local_path=assignment.local_path,
+        )
+        if (
+            current is None
+            or current.external_cert_id != ext_cert.id
+            or current.serial_hex != ext_cert.serial_hex
+            or current.not_after != ext_cert.not_after
+        ):
+            return
+        latest_current = current
+
+    rollout_item.status = RolloutItemStatus.COMPLETED
+    rollout_item.completed_at = now
+    rollout_item.new_cert_id = latest_current.id if latest_current else None
+    db.add(rollout_item)
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +214,35 @@ async def register_agent(
             message="Registration submitted. Waiting for admin approval.",
         )
 
+    # Pre-created agent slot: bind the first observed fingerprint.
+    if existing.fingerprint is None:
+        if existing.status == AgentStatus.REVOKED:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Agent registration has been rejected",
+            )
+
+        existing.fingerprint = body.fingerprint
+        db.add(existing)
+        await write_audit(
+            db,
+            action="agent_registered",
+            entity_type="agent",
+            entity_id=existing.id,
+            actor=existing.name,
+            details={"fingerprint": body.fingerprint, "pre_created": True},
+            ip_address=request.client.host if request.client else None,
+        )
+        await db.commit()
+        await db.refresh(existing)
+
+        return AgentRegisterResponse(
+            status="pending",
+            agent_id=existing.id,
+            agent_token=None,
+            message="Registration submitted. Waiting for admin approval.",
+        )
+
     # Existing agent
     if existing.fingerprint != body.fingerprint:
         logger.warning(
@@ -147,6 +263,12 @@ async def register_agent(
             agent_id=existing.id,
             agent_token=existing.agent_token,
             message="Agent is approved and active.",
+        )
+
+    if existing.status == AgentStatus.REVOKED:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Agent registration has been rejected",
         )
 
     # Still pending
@@ -268,6 +390,11 @@ async def fetch_certs(
     else:
         agent = await _resolve_agent_by_token(x_agent_token, db)
 
+    rollout_item = await _get_active_rollout_item(db, agent_id=agent.id)
+    updates_allowed = (
+        rollout_item is None or rollout_item.status == RolloutItemStatus.IN_PROGRESS
+    )
+
     updates: list[CertUpdateItem] = []
 
     for check in body.certs:
@@ -299,11 +426,30 @@ async def fetch_certs(
             ))
             continue
 
+        if (
+            check.current_not_after is not None
+            and check.current_not_after >= ext_cert.not_after
+        ):
+            await record_deployed_cert(
+                db,
+                agent_id=agent.id,
+                local_path=check.local_path,
+                external_cert=ext_cert,
+            )
+
         # Compare not_after: update if server cert is newer
         has_update = (
             check.current_not_after is None
             or ext_cert.not_after > check.current_not_after
         )
+
+        if has_update and not updates_allowed:
+            updates.append(CertUpdateItem(
+                local_path=check.local_path,
+                has_update=False,
+                not_after=ext_cert.not_after,
+            ))
+            continue
 
         if not has_update:
             updates.append(CertUpdateItem(
@@ -338,6 +484,8 @@ async def fetch_certs(
             chain_pem=ext_cert.chain_pem,
             not_after=ext_cert.not_after,
         ))
+
+    await _complete_rollout_item_if_ready(db, agent=agent, rollout_item=rollout_item)
 
     await write_audit(
         db,

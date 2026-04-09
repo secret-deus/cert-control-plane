@@ -4,9 +4,9 @@ const ADMIN_API_KEY = process.env.ADMIN_API_KEY || 'test-admin-key';
 
 test.describe('Rollouts Page', () => {
   test.beforeEach(async ({ page }) => {
-    // Set API key in localStorage
+    // Set API key in sessionStorage
     await page.addInitScript((key) => {
-      localStorage.setItem('apiKey', key);
+      sessionStorage.setItem('admin_api_key', key);
     }, ADMIN_API_KEY);
 
     // Mock rollouts API
@@ -14,30 +14,35 @@ test.describe('Rollouts Page', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify([
-          {
-            id: '123e4567-e89b-12d3-a456-426614174000',
-            name: 'Q1 Certificate Rotation',
-            description: 'Rotate all production certificates',
-            status: 'completed',
-            current_batch: 3,
-            total_batches: 3,
-            batch_size: 5,
-            created_at: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-            created_by: 'admin',
-          },
-          {
-            id: '123e4567-e89b-12d3-a456-426614174001',
-            name: 'Q2 Certificate Rotation',
-            description: 'Rotate staging certificates',
-            status: 'running',
-            current_batch: 1,
-            total_batches: 2,
-            batch_size: 3,
-            created_at: new Date().toISOString(),
-            created_by: 'admin',
-          }
-        ])
+        body: JSON.stringify({
+          items: [
+            {
+              id: '123e4567-e89b-12d3-a456-426614174000',
+              name: 'Q1 Certificate Rotation',
+              description: 'Rotate all production certificates',
+              status: 'completed',
+              current_batch: 3,
+              total_batches: 3,
+              batch_size: 5,
+              created_at: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+              created_by: 'admin',
+            },
+            {
+              id: '123e4567-e89b-12d3-a456-426614174001',
+              name: 'Q2 Certificate Rotation',
+              description: 'Rotate staging certificates',
+              status: 'running',
+              current_batch: 1,
+              total_batches: 2,
+              batch_size: 3,
+              created_at: new Date().toISOString(),
+              created_by: 'admin',
+            }
+          ],
+          total: 2,
+          skip: 0,
+          limit: 50,
+        })
       });
     });
   });

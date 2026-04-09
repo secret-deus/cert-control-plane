@@ -175,6 +175,59 @@ class TestRegister:
         assert data["status"] == "pending"
         assert data["agent_token"] is None
 
+    @pytest.mark.asyncio
+    async def test_precreated_agent_slot_binds_first_fingerprint(self, client):
+        """Pre-created agent slot should accept the first observed fingerprint."""
+        agent = _make_agent(
+            status=AgentStatus.PENDING_APPROVAL,
+            fingerprint=None,
+            agent_token=None,
+        )
+
+        mock_db = AsyncMock()
+        mock_db.execute.return_value = _make_result(agent)
+        mock_db.commit = AsyncMock()
+        mock_db.refresh = AsyncMock()
+        mock_db.add = MagicMock()
+
+        from app.database import get_db
+        client._transport.app.dependency_overrides[get_db] = lambda: mock_db
+
+        fingerprint = "c" * 64
+
+        with patch("app.api.agent.write_audit", new_callable=AsyncMock):
+            resp = await client.post("/api/agent/register", json={
+                "name": agent.name,
+                "fingerprint": fingerprint,
+            })
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "pending"
+        assert agent.fingerprint == fingerprint
+
+    @pytest.mark.asyncio
+    async def test_rejected_agent_returns_403(self, client):
+        """Rejected agent cannot re-register with the same fingerprint."""
+        agent = _make_agent(
+            status=AgentStatus.REVOKED,
+            fingerprint="d" * 64,
+            agent_token=None,
+        )
+
+        mock_db = AsyncMock()
+        mock_db.execute.return_value = _make_result(agent)
+
+        from app.database import get_db
+        client._transport.app.dependency_overrides[get_db] = lambda: mock_db
+
+        resp = await client.post("/api/agent/register", json={
+            "name": agent.name,
+            "fingerprint": agent.fingerprint,
+        })
+
+        assert resp.status_code == 403
+        assert "rejected" in resp.json()["detail"].lower()
+
 
 # ---------------------------------------------------------------------------
 # Tests: GET /api/agent/register/status
@@ -371,7 +424,9 @@ class TestFetchCerts:
         from app.database import get_db
         client._transport.app.dependency_overrides[get_db] = lambda: mock_db
 
-        with patch("app.api.agent.write_audit", new_callable=AsyncMock):
+        with patch("app.api.agent.write_audit", new_callable=AsyncMock), \
+             patch("app.api.agent._get_active_rollout_item", new_callable=AsyncMock, return_value=None), \
+             patch("app.api.agent._complete_rollout_item_if_ready", new_callable=AsyncMock):
             resp = await client.post(
                 "/api/agent/fetch-certs",
                 json={"certs": [{"local_path": "/etc/nginx/ssl/a.crt"}]},
@@ -422,6 +477,8 @@ class TestFetchCerts:
         old_not_after = datetime.now(tz=timezone.utc) - timedelta(days=365)
 
         with patch("app.api.agent.write_audit", new_callable=AsyncMock), \
+             patch("app.api.agent._get_active_rollout_item", new_callable=AsyncMock, return_value=None), \
+             patch("app.api.agent._complete_rollout_item_if_ready", new_callable=AsyncMock), \
              patch("app.api.agent.decrypt_key", return_value=b"PLAINTEXT-KEY"):
             resp = await client.post(
                 "/api/agent/fetch-certs",
@@ -472,7 +529,10 @@ class TestFetchCerts:
         from app.database import get_db
         client._transport.app.dependency_overrides[get_db] = lambda: mock_db
 
-        with patch("app.api.agent.write_audit", new_callable=AsyncMock):
+        with patch("app.api.agent.write_audit", new_callable=AsyncMock), \
+             patch("app.api.agent._get_active_rollout_item", new_callable=AsyncMock, return_value=None), \
+             patch("app.api.agent._complete_rollout_item_if_ready", new_callable=AsyncMock), \
+             patch("app.api.agent.record_deployed_cert", new_callable=AsyncMock):
             resp = await client.post(
                 "/api/agent/fetch-certs",
                 json={"certs": [

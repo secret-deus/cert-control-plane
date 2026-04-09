@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import AuthScreen from './components/AuthScreen';
 import Layout from './components/Layout';
 import Dashboard from './components/Dashboard';
@@ -38,7 +38,8 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route element={<Layout onLogout={handleLogout} />}>
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/dashboard" element={<Layout onLogout={handleLogout} />}>
           <Route index element={<Dashboard />} />
           <Route path="agents" element={<AgentsPage />} />
           <Route path="certificates" element={<CertificatesPage />} />

@@ -49,7 +49,7 @@ npx playwright test login.spec.ts
 
 1. **Use mock APIs**: Tests should not depend on a running backend server. Use `page.route()` to mock API responses.
 
-2. **Set authentication**: Use `page.addInitScript()` to set the API key in localStorage before tests run.
+2. **Set authentication**: Use `page.addInitScript()` to set the API key in `sessionStorage` before tests run. The frontend reads `admin_api_key`.
 
 3. **Test user flows**: Focus on testing complete user interactions, not individual components.
 
@@ -64,7 +64,7 @@ test.describe('My Feature', () => {
   test.beforeEach(async ({ page }) => {
     // Set up authentication
     await page.addInitScript((key) => {
-      localStorage.setItem('apiKey', key);
+      sessionStorage.setItem('admin_api_key', key);
     }, 'test-api-key');
 
     // Mock API responses
@@ -83,6 +83,8 @@ test.describe('My Feature', () => {
   });
 });
 ```
+
+如果页面请求的是分页接口，mock body 也需要返回 `{items, total, skip, limit}` 结构，而不是裸数组。
 
 ## CI Integration
 

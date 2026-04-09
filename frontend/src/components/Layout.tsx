@@ -9,12 +9,12 @@ interface LayoutProps {
 }
 
 const navItems = [
-  { to: '/',            icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/agents',      icon: Server,          label: 'Agents' },
-  { to: '/certificates',icon: FileKey2,        label: 'Certificates' },
-  { to: '/external-certs',icon: UploadCloud,   label: 'External Certs' },
-  { to: '/rollouts',    icon: RefreshCw,       label: 'Rollouts' },
-  { to: '/audit',       icon: ScrollText,      label: 'Audit Logs' },
+  { to: '/dashboard',               icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/dashboard/agents',        icon: Server,          label: 'Agents' },
+  { to: '/dashboard/certificates',  icon: FileKey2,        label: 'Certificates' },
+  { to: '/dashboard/external-certs',icon: UploadCloud,     label: 'External Certs' },
+  { to: '/dashboard/rollouts',      icon: RefreshCw,       label: 'Rollouts' },
+  { to: '/dashboard/audit',         icon: ScrollText,      label: 'Audit Logs' },
 ];
 
 export default function Layout({ onLogout }: LayoutProps) {
@@ -34,7 +34,7 @@ export default function Layout({ onLogout }: LayoutProps) {
             <NavLink
               key={to}
               to={to}
-              end={to === '/'}
+              end={to === '/dashboard'}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
                   isActive

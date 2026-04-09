@@ -1,11 +1,11 @@
 """Rollout Orchestrator – advances batches, handles pause/resume/rollback.
 
-CSR mode flow:
-  1. Orchestrator marks rollout_items as IN_PROGRESS (= "agent should renew")
-  2. Agent sees pending_action=renew in heartbeat → generates key + CSR → POST /renew
-  3. /renew endpoint issues cert and marks rollout_item COMPLETED
-  4. Orchestrator waits for ALL items in the current batch to finish before advancing
-  5. Items stuck IN_PROGRESS beyond timeout are marked FAILED
+External distribution flow:
+  1. Orchestrator marks rollout_items as IN_PROGRESS for the current batch
+  2. Only IN_PROGRESS agents are allowed to pull assigned certificate updates
+  3. Agent deploys the cert and confirms it on the next fetch-certs poll
+  4. The control plane marks rollout_item COMPLETED after observing the new cert
+  5. Orchestrator waits for ALL items in the current batch to finish before advancing
 """
 
 import logging
@@ -398,16 +398,23 @@ async def rollback_rollout(
 
     for item in items:
         if item.status == RolloutItemStatus.COMPLETED and item.previous_cert_id:
+            previous_cert = await db.get(Certificate, item.previous_cert_id)
+            if previous_cert is None:
+                continue
+
             # Restore previous cert as current
             await db.execute(
                 update(Certificate)
-                .where(Certificate.agent_id == item.agent_id)
+                .where(
+                    Certificate.agent_id == item.agent_id,
+                    Certificate.local_path == previous_cert.local_path,
+                )
                 .values(is_current=False)
             )
             await db.execute(
                 update(Certificate)
                 .where(Certificate.id == item.previous_cert_id)
-                .values(is_current=True)
+                .values(is_current=True, revoked_at=None)
             )
 
             await write_audit(

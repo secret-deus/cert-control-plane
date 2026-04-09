@@ -194,6 +194,11 @@ async def approve_agent(
         raise HTTPException(status_code=404, detail="Agent not found")
     if agent.status == AgentStatus.ACTIVE:
         raise HTTPException(status_code=409, detail="Agent is already active")
+    if not agent.fingerprint:
+        raise HTTPException(
+            status_code=409,
+            detail="Agent has not self-registered yet",
+        )
 
     agent.agent_token = generate_agent_token()
     agent.status = AgentStatus.ACTIVE

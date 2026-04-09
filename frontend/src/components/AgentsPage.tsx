@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Server, Plus, Check, X, Clock, UserCheck, UserX } from 'lucide-react';
+import { Server, Plus, X, Clock, UserCheck, UserX } from 'lucide-react';
 import { apiFetch, apiPost } from '../lib/api';
 import { formatDistanceToNow } from 'date-fns';
 

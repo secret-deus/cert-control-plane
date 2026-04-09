@@ -352,6 +352,22 @@ class TestAgentsAPI:
         assert resp.status_code == 409
 
     @pytest.mark.asyncio
+    async def test_approve_agent_without_fingerprint_returns_409(self, client):
+        """Pre-created slot cannot be approved before self-registration."""
+        agent = _make_agent(status=AgentStatus.PENDING_APPROVAL, agent_token=None)
+        agent.fingerprint = None
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=agent)
+
+        from app.database import get_db
+        client._transport.app.dependency_overrides[get_db] = lambda: mock_db
+
+        resp = await client.post(f"/api/control/agents/{agent.id}/approve")
+
+        assert resp.status_code == 409
+        assert "self-registered" in resp.json()["detail"]
+
+    @pytest.mark.asyncio
     async def test_reject_agent_success(self, client):
         """POST /agents/{id}/reject sets status to REVOKED."""
         agent = _make_agent(status=AgentStatus.PENDING_APPROVAL)

@@ -314,7 +314,8 @@ sudo journalctl -u cert-agent -f
 # INFO cert-agent: Registration pending – waiting for admin approval
 ```
 
-运维人员需要在 Dashboard 中审批该 Agent，审批后 Agent 会自动获得 `agent_token` 并开始正常工作。
+如果运维人员提前在控制平面预创建了同名 Agent 槽位，首次注册时会绑定该 Agent 首次上报的指纹。
+只有完成这一步自注册后，Dashboard 中的审批操作才会成功；审批后 Agent 会自动获得 `agent_token` 并开始正常工作。
 
 ## 运维手册
 
@@ -374,6 +375,11 @@ curl -k -X POST https://cp.example.com/api/control/rollouts/{rollout-id}/pause \
 curl -k -X POST https://cp.example.com/api/control/rollouts/{rollout-id}/resume \
   -H "X-Admin-API-Key: your-key"
 ```
+
+Rollout 运行语义:
+- 只有当前批次 `IN_PROGRESS` 的 Agent 会在 `fetch-certs` 中收到新的证书内容
+- Agent 部署完成后，会在下一轮 `fetch-certs` 上报新的 `current_not_after`
+- 控制平面在观察到当前分配证书已经生效后，会写入证书历史并将对应 `RolloutItem` 标记为 `COMPLETED`
 
 ### 监控和告警
 
@@ -441,11 +447,17 @@ curl -k https://cp.example.com/api/control/rollouts/{rollout-id} \
 
 2. 检查超时配置:
 ```bash
-# 默认超时 60 分钟
+# 默认超时 10 分钟
 # 可以在 .env 中调整 ROLLOUT_ITEM_TIMEOUT_MINUTES
 ```
 
-3. 手动回滚:
+3. 确认当前批次 Agent 已完成至少一轮部署确认:
+```bash
+# Agent 完成 nginx reload 后，需要下一轮 fetch-certs 才会把 rollout item 标记为 COMPLETED
+sudo journalctl -u cert-agent -n 100
+```
+
+4. 手动回滚:
 ```bash
 curl -k -X POST https://cp.example.com/api/control/rollouts/{rollout-id}/rollback \
   -H "X-Admin-API-Key: your-key"

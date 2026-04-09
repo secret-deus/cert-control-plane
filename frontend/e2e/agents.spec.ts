@@ -4,9 +4,9 @@ const ADMIN_API_KEY = process.env.ADMIN_API_KEY || 'test-admin-key';
 
 test.describe('Agents Page', () => {
   test.beforeEach(async ({ page }) => {
-    // Set API key in localStorage
+    // Set API key in sessionStorage
     await page.addInitScript((key) => {
-      localStorage.setItem('apiKey', key);
+      sessionStorage.setItem('admin_api_key', key);
     }, ADMIN_API_KEY);
 
     // Mock agents API
@@ -14,24 +14,29 @@ test.describe('Agents Page', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify([
-          {
-            id: '123e4567-e89b-12d3-a456-426614174000',
-            name: 'test-agent-1',
-            status: 'active',
-            fingerprint: 'abc123',
-            last_seen: new Date().toISOString(),
-            created_at: new Date().toISOString(),
-          },
-          {
-            id: '123e4567-e89b-12d3-a456-426614174001',
-            name: 'test-agent-2',
-            status: 'pending_approval',
-            fingerprint: 'def456',
-            last_seen: null,
-            created_at: new Date().toISOString(),
-          }
-        ])
+        body: JSON.stringify({
+          items: [
+            {
+              id: '123e4567-e89b-12d3-a456-426614174000',
+              name: 'test-agent-1',
+              status: 'active',
+              fingerprint: 'abc123',
+              last_seen: new Date().toISOString(),
+              created_at: new Date().toISOString(),
+            },
+            {
+              id: '123e4567-e89b-12d3-a456-426614174001',
+              name: 'test-agent-2',
+              status: 'pending_approval',
+              fingerprint: 'def456',
+              last_seen: null,
+              created_at: new Date().toISOString(),
+            }
+          ],
+          total: 2,
+          skip: 0,
+          limit: 100,
+        })
       });
     });
   });

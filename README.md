@@ -16,7 +16,8 @@ TLS 证书生命周期管理系统，当前基线为 **外部证书分发模式*
 | **8443** | Agent API (节点通信) | `X-Agent-Token` |
 
 - 推荐将 Agent API 与 Control API 通过不同入口或端口隔离
-- Agent 首次调用 `/api/agent/register` 完成 TOFU 注册，审批后获得 `agent_token`
+- Agent 首次调用 `/api/agent/register` 完成 TOFU 注册；如果管理员提前预创建了同名槽位，这一步会绑定首次上报的指纹
+- Agent 只有完成首次自注册并绑定指纹后，管理员才能审批并颁发 `agent_token`
 - Agent 随后通过 `heartbeat + fetch-certs` 维持在线状态并拉取证书更新
 
 ## 技术栈
@@ -132,7 +133,7 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000
 | GET | `/api/control/agents` | Agent 列表 (分页) |
 | GET | `/api/control/agents/{id}` | 查询单个 Agent |
 | DELETE | `/api/control/agents/{id}` | 删除 Agent |
-| POST | `/api/control/agents/{id}/approve` | 审批 Agent，颁发 `agent_token` |
+| POST | `/api/control/agents/{id}/approve` | 审批 Agent，颁发 `agent_token`（要求 Agent 已完成首次自注册） |
 | POST | `/api/control/agents/{id}/reject` | 拒绝 Agent 注册 |
 
 **外部证书管理**
@@ -198,6 +199,7 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000
     │                         │    POST /agent/register        │
     │                         │    (name + fingerprint)        │
     │                         │◄──────────────────────────────┤
+    │                         │    绑定首次指纹（若为预创建槽位） │
     │                         │    ──► status=pending          │
     │                         │──────────────────────────────►│
     │                         │                               │
@@ -227,15 +229,19 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000
     │                         │    ──► cert_pem + key_pem      │
     │                         │──────────────────────────────►│
     │                         │                               │ 写入文件并 reload nginx
+    │                         │    下一轮 fetch-certs 上报新有效期 │
+    │                         │◄──────────────────────────────┤
+    │                         │    写入证书台账 / 更新 rollout item │
+    │                         │──────────────────────────────►│
 ```
 
 ### Rollout 批次推进
 
 1. 创建 Rollout → 按 `batch_size` 将目标 Agent 分为多个批次
-2. 启动 Rollout → 编排器标记第 1 批次的 items 为 `IN_PROGRESS`
-3. 当前版本的 Rollout 语义是“按 Agent 维度分批放行变更窗口”，不是“按单张证书或单条 assignment 精确追踪部署”
-4. 分发成功的主观测面仍是 `fetch-certs`、证书历史、Dashboard 和审计日志
-5. Rollout 状态机、暂停、恢复、回滚能力已具备，但 `RolloutItem` 仍是 `agent` 维度，后续若要按 `agent + local_path + external_cert` 精确验收，需要单独重构模型
+2. 启动 Rollout → 编排器标记第 1 批次的 items 为 `IN_PROGRESS`，只有当前批次 Agent 会收到证书更新
+3. Agent 部署证书后，会在下一轮 `fetch-certs` 用新的 `current_not_after` 回报；控制平面据此写入证书台账
+4. 当控制平面观察到该 Agent 的分配证书都已成为当前证书时，对应 `RolloutItem` 标记为 `COMPLETED`
+5. 当前版本的 `RolloutItem` 仍是 `agent` 维度，不是 `agent + local_path + external_cert` 维度；更细粒度验收需要后续重构模型
 6. 超时未完成的 item 自动标记为 `FAILED`（默认 10 分钟）
 
 支持的操作：**暂停** / **恢复** / **回滚**（恢复到旧证书）
