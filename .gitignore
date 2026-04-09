@@ -1,22 +1,85 @@
+# Python
 __pycache__/
 *.pyc
 *.pyo
-.env
-certs/
+*.pyd
+.Python
 *.egg-info/
+.eggs/
+*.egg
 dist/
 build/
 .venv/
-server/frontend/dist/
-server/frontend/node_modules/
+venv/
+ENV/
+env/
 .pytest_cache/
-.qoder/
+.mypy_cache/
+.ruff_cache/
+
+# Environment
+.env
+.env.local
+.env.*.local
+*.env
+
+# Database
 certcp.db
+*.db
 *.db-shm
 *.db-wal
+*.sqlite
+*.sqlite3
+
+# Certificates & Keys (sensitive)
+certs/
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# IDE & Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.qoder/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Backup files
 *.bak
-CLAUDE.md
+*.backup
+
+# Frontend
+server/frontend/dist/
+server/frontend/node_modules/
+server/frontend/.npm/
+
+# Agent builds
 client/agent-go/cert-agent
-client/agent-rust/target/
 client/agent-go/dist/
+client/agent-rust/target/
 client/agent-rust/dist/
+
+# Test coverage
+htmlcov/
+.coverage
+coverage.xml
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Project docs (not tracked)
+PLAN.md
+docs/
