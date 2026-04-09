@@ -81,7 +81,12 @@ async def _get_active_rollout_item(
     *,
     agent_id,
 ) -> RolloutItem | None:
-    """Return the active rollout item that currently gates this agent, if any."""
+    """Return the rollout item gating this agent in a RUNNING rollout.
+
+    Returns the IN_PROGRESS item if one exists, otherwise a PENDING item.
+    Used to gate fetch-certs: agents with IN_PROGRESS items may pull updates;
+    agents with only PENDING items must wait for their batch.
+    """
     result = await db.execute(
         select(RolloutItem)
         .join(Rollout, Rollout.id == RolloutItem.rollout_id)
