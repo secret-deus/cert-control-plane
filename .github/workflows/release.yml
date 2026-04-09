@@ -39,12 +39,12 @@ jobs:
 
       - name: Build
         run: |
-          cd agent-rust
+          cd client/agent-rust
           cargo build --release --target ${{ matrix.target }}
 
       - name: Package
         run: |
-          cd agent-rust
+          cd client/agent-rust
           mkdir -p dist
           if [ -f target/${{ matrix.target }}/release/cert-agent ]; then
             cp target/${{ matrix.target }}/release/cert-agent dist/${{ matrix.artifact_name }}
@@ -57,7 +57,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: agent-rust/dist/${{ matrix.artifact_name }}
+          path: client/agent-rust/dist/${{ matrix.artifact_name }}
 
   build-go-agent:
     name: Build Go Agent
@@ -91,14 +91,14 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
         run: |
-          cd agent-go
+          cd client/agent-go
           go build -ldflags="-s -w" -o dist/${{ matrix.artifact_name }} ./cmd/cert-agent
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: go-${{ matrix.artifact_name }}
-          path: agent-go/dist/${{ matrix.artifact_name }}
+          path: client/agent-go/dist/${{ matrix.artifact_name }}
 
   upload-release-assets:
     name: Upload Release Assets
@@ -166,6 +166,6 @@ jobs:
             sudo mv cert-agent-* /usr/local/bin/cert-agent
             ```
 
-            See [agent-rust/README.md](agent-rust/README.md) for detailed usage instructions.
+            See [client/agent-rust/README.md](client/agent-rust/README.md) for detailed usage instructions.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

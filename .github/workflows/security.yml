@@ -13,6 +13,9 @@ jobs:
   python-dependencies:
     name: Python Dependency Scan
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
     steps:
       - uses: actions/checkout@v4
 
@@ -34,14 +37,14 @@ jobs:
         if: always()
         with:
           name: python-audit-report
-          path: python-audit-report.md
+          path: server/python-audit-report.md
 
   npm-dependencies:
     name: NPM Dependency Scan
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: frontend
+        working-directory: server/frontend
     steps:
       - uses: actions/checkout@v4
 
@@ -49,7 +52,7 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: server/frontend/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -63,7 +66,7 @@ jobs:
         if: always()
         with:
           name: npm-audit-report
-          path: frontend/npm-audit-report.json
+          path: server/frontend/npm-audit-report.json
 
   container-scan:
     name: Container Vulnerability Scan
@@ -73,7 +76,7 @@ jobs:
 
       - name: Build Docker image
         run: |
-          docker build -t cert-control-plane:scan .
+          docker build -t cert-control-plane:scan ./server
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
@@ -158,25 +161,25 @@ jobs:
           echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
 
           if [ "${{ needs.python-dependencies.result }}" == "success" ]; then
-            echo "| Python Dependencies | ✅ Pass |" >> $GITHUB_STEP_SUMMARY
+            echo "| Python Dependencies | Pass |" >> $GITHUB_STEP_SUMMARY
           else
-            echo "| Python Dependencies | ⚠️ Issues found |" >> $GITHUB_STEP_SUMMARY
+            echo "| Python Dependencies | Issues found |" >> $GITHUB_STEP_SUMMARY
           fi
 
           if [ "${{ needs.npm-dependencies.result }}" == "success" ]; then
-            echo "| NPM Dependencies | ✅ Pass |" >> $GITHUB_STEP_SUMMARY
+            echo "| NPM Dependencies | Pass |" >> $GITHUB_STEP_SUMMARY
           else
-            echo "| NPM Dependencies | ⚠️ Issues found |" >> $GITHUB_STEP_SUMMARY
+            echo "| NPM Dependencies | Issues found |" >> $GITHUB_STEP_SUMMARY
           fi
 
           if [ "${{ needs.codeql.result }}" == "success" ]; then
-            echo "| CodeQL Analysis | ✅ Pass |" >> $GITHUB_STEP_SUMMARY
+            echo "| CodeQL Analysis | Pass |" >> $GITHUB_STEP_SUMMARY
           else
-            echo "| CodeQL Analysis | ⚠️ Issues found |" >> $GITHUB_STEP_SUMMARY
+            echo "| CodeQL Analysis | Issues found |" >> $GITHUB_STEP_SUMMARY
           fi
 
           if [ "${{ needs.secrets-scan.result }}" == "success" ]; then
-            echo "| Secrets Scan | ✅ Pass |" >> $GITHUB_STEP_SUMMARY
+            echo "| Secrets Scan | Pass |" >> $GITHUB_STEP_SUMMARY
           else
-            echo "| Secrets Scan | ⚠️ Issues found |" >> $GITHUB_STEP_SUMMARY
+            echo "| Secrets Scan | Issues found |" >> $GITHUB_STEP_SUMMARY
           fi

@@ -7,8 +7,8 @@ certs/
 dist/
 build/
 .venv/
-frontend/dist/
-frontend/node_modules/
+server/frontend/dist/
+server/frontend/node_modules/
 .pytest_cache/
 .qoder/
 certcp.db
@@ -16,5 +16,7 @@ certcp.db
 *.db-wal
 *.bak
 CLAUDE.md
-agent-go/cert-agent
-agent-rust/target/
+client/agent-go/cert-agent
+client/agent-rust/target/
+client/agent-go/dist/
+client/agent-rust/dist/

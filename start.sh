@@ -86,14 +86,14 @@ echo "[5/6] 启动 FastAPI 后端 (port $BACKEND_PORT)..."
 lsof -ti:$BACKEND_PORT 2>/dev/null | xargs -r kill -15 2>/dev/null || true
 sleep 1
 
-cd "$ROOT_DIR"
+cd "$ROOT_DIR/server"
 python3 -m uvicorn app.main:app --host 127.0.0.1 --port "$BACKEND_PORT" &
 BACKEND_PID=$!
 echo "  后端 PID: $BACKEND_PID"
 
 # ── 6. 启动前端 ──
 echo "[6/6] 启动 React 前端 (Vite dev)..."
-FRONTEND_DIR="$ROOT_DIR/frontend"
+FRONTEND_DIR="$ROOT_DIR/server/frontend"
 if [ -d "$FRONTEND_DIR" ]; then
     if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
         echo "  安装前端依赖..."

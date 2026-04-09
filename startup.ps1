@@ -108,14 +108,14 @@ Start-Sleep -Seconds 1
 
 $backendJob = Start-Process -FilePath "python" `
     -ArgumentList "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "$BackendPort" `
-    -WorkingDirectory $root `
+    -WorkingDirectory (Join-Path $root "server") `
     -PassThru -WindowStyle Minimized
 Write-Host "  Backend PID: $($backendJob.Id)" -ForegroundColor Green
 
 # -- 6. Start frontend --
 if (-not $SkipFrontend) {
     Write-Host "[6/6] Starting React frontend (Vite dev)..." -ForegroundColor Yellow
-    $frontendDir = Join-Path $root "frontend"
+    $frontendDir = Join-Path $root "server\frontend"
 
     if (-not (Test-Path (Join-Path $frontendDir "node_modules"))) {
         Write-Host "  Installing frontend deps (npm install)..." -ForegroundColor DarkYellow

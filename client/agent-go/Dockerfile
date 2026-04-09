@@ -2,11 +2,10 @@ FROM golang:1.21 AS builder
 
 WORKDIR /src
 
-COPY agent-go/go.mod ./agent-go/
-WORKDIR /src/agent-go
+COPY go.mod ./
 RUN go mod download
 
-COPY agent-go/ ./
+COPY ./ ./
 
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64

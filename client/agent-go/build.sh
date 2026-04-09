@@ -1,18 +1,18 @@
 #!/bin/sh
 set -eu
 
-ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-OUT_DIR="${ROOT_DIR}/dist"
+AGENT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+OUT_DIR="${AGENT_DIR}/dist"
 TARGETOS="${TARGETOS:-linux}"
 TARGETARCH="${TARGETARCH:-amd64}"
 
 mkdir -p "${OUT_DIR}"
 
 docker build \
-  -f "${ROOT_DIR}/agent-go/Dockerfile" \
+  -f "${AGENT_DIR}/Dockerfile" \
   --build-arg TARGETOS="${TARGETOS}" \
   --build-arg TARGETARCH="${TARGETARCH}" \
   --output "type=local,dest=${OUT_DIR}" \
-  "${ROOT_DIR}"
+  "${AGENT_DIR}"
 
 echo "built ${OUT_DIR}/cert-agent"

@@ -8,8 +8,9 @@ import pathlib
 
 import pytest
 
-PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
-AGENT_DIR = PROJECT_ROOT / "agent"
+PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
+CLIENT_DIR = pathlib.Path(__file__).resolve().parent.parent
+AGENT_DIR = CLIENT_DIR / "agent"
 INSTALL_SCRIPT = AGENT_DIR / "scripts" / "install.sh"
 INSTALL_SCRIPT_PS1 = AGENT_DIR / "scripts" / "install.ps1"
 AGENT_ENV_EXAMPLE = AGENT_DIR / "agent.env.example"
