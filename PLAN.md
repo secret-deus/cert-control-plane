@@ -82,7 +82,7 @@ Cert Control Plane 是一个 TLS 证书生命周期管理系统，当前采用 *
 | TASK-P2-3: Rollout 测试修复 | ✅ 已完成 | 已清理 `AsyncMock` 误用导致的 warnings |
 | TASK-P2-4: Assignment 与证书链路测试 | ✅ 已完成 | 已覆盖上传外部证书 -> 分配 -> Agent 拉取更新链路 |
 | TASK-P2-5: Dashboard 告警测试 | ✅ 已完成 | 已覆盖 `external-certs-expiry`、`cert-alerts` 视图 |
-| TASK-P2-6: Registry/Store 测试 | 待处理 | 当前仍需确认历史 `revoke_cert` 语义是否保留 |
+| TASK-P2-6: Registry/Store 测试 | ✅ 已完成 | 已补充 `test_registry_store.py`，覆盖 `get_current_cert`、`revoke_cert`、`record_deployed_cert` |
 
 ### Phase 3: 生产就绪 [进行中]
 
@@ -133,9 +133,17 @@ Cert Control Plane 是一个 TLS 证书生命周期管理系统，当前采用 *
 
 **当前结果**:
 
-- `101 passed`
+- `97 passed` (2026-04-13)
 - Python Agent live smoke 已通过
 - Go 二进制 Agent live smoke 已通过
+
+### 今日进展记录 (2026-04-13)
+
+- 完成 Phase 3 任务执行检查
+- 性能测试框架已就绪 (tools/performance/)
+- 安全审计检查通过
+- 前端 E2E 测试框架已就绪 (本地需后端服务运行，CI 已集成)
+- Registry/Store 测试补充完成 (test_registry_store.py)
 
 ### 今日进展记录 (2026-04-03)
 

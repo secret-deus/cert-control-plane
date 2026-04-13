@@ -83,3 +83,13 @@ temp/
 # Project docs (not tracked)
 PLAN.md
 docs/
+
+# Test results
+server/frontend/test-results/
+server/playwright-report/
+
+# Temporary files
+*.png
+setup_doc.png
+server/tests/
+PLAN.md
