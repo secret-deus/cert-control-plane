@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
@@ -78,13 +79,41 @@ type FetchCertsResponse struct {
 	Updates []CertUpdateItem `json:"updates"`
 }
 
+// ReportCertItem is one entry in the report-certs request
+type ReportCertItem struct {
+	LocalPath string  `json:"local_path"`
+	CertPEM   string  `json:"cert_pem"`
+	ChainPEM  *string `json:"chain_pem,omitempty"`
+}
+
+// ReportCertsRequest is the request body for reporting deployed certs
+type ReportCertsRequest struct {
+	Certs []ReportCertItem `json:"certs"`
+}
+
+// ReportCertsResponse is the response from report-certs
+type ReportCertsResponse struct {
+	Recorded int `json:"recorded"`
+}
+
 // New creates a new ControlPlaneClient (no mTLS)
 func New(cfg *config.Config) (*ControlPlaneClient, error) {
+	// Configure TLS
+	tlsConfig := &tls.Config{}
+	if cfg.InsecureSkipVerify {
+		tlsConfig.InsecureSkipVerify = true
+	}
+
+	transport := &http.Transport{
+		TLSClientConfig: tlsConfig,
+	}
+
 	return &ControlPlaneClient{
 		config:  cfg,
 		baseURL: cfg.ControlPlaneURL,
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout:   30 * time.Second,
+			Transport: transport,
 		},
 	}, nil
 }
@@ -226,6 +255,42 @@ func (c *ControlPlaneClient) FetchCerts(checks []CertCheckItem) (*FetchCertsResp
 	}
 
 	var result FetchCertsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// ReportCerts reports deployed certificates to the control plane
+func (c *ControlPlaneClient) ReportCerts(certs []ReportCertItem) (*ReportCertsResponse, error) {
+	reqBody := ReportCertsRequest{Certs: certs}
+
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	reqURL := fmt.Sprintf("%s/api/agent/report-certs", c.baseURL)
+	req, err := http.NewRequest("POST", reqURL, bytes.NewReader(jsonBody))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	c.authHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("report-certs failed: %s - %s", resp.Status, string(body))
+	}
+
+	var result ReportCertsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}

@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/cert-control-plane/agent-go/internal/config"
+	"github.com/cert-control-plane/agent-go/internal/nginx"
 	"github.com/cert-control-plane/agent-go/internal/runner"
 )
 
@@ -30,6 +31,27 @@ func main() {
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		logger.Fatal("Failed to load configuration", zap.Error(err))
+	}
+
+	// Auto-detect nginx cert paths if enabled and cert_table is empty
+	if cfg.AutoDetect && len(cfg.CertTable) == 0 {
+		logger.Info("Auto-detecting nginx SSL certificate paths...")
+		paths, err := nginx.DetectCertPaths()
+		if err != nil {
+			logger.Warn("Auto-detect failed, continuing with empty cert_table",
+				zap.Error(err))
+		} else {
+			logger.Info("Detected certificate paths", zap.Int("count", len(paths)))
+			for _, p := range paths {
+				cfg.CertTable = append(cfg.CertTable, config.CertTableEntry{
+					LocalPath: p.LocalPath,
+					CertName:  p.ServerName,
+				})
+				logger.Info("  - detected cert",
+					zap.String("path", p.LocalPath),
+					zap.String("server_name", p.ServerName))
+			}
+		}
 	}
 
 	// Create runner

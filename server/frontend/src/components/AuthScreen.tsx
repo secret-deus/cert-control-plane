@@ -28,12 +28,12 @@ export default function AuthScreen({ onLogin }: AuthScreenProps) {
       if (res.ok) {
         onLogin(key);
       } else if (res.status === 401 || res.status === 403) {
-        setError('Invalid API Key');
+        setError('API Key 无效');
       } else {
-        setError(`Server error: ${res.status}`);
+        setError(`服务器错误: ${res.status}`);
       }
     } catch {
-      setError('Connection failed. Ensure the server is running.');
+      setError('连接失败，请确认服务器正在运行');
     } finally {
       setIsVerifying(false);
     }
@@ -46,9 +46,9 @@ export default function AuthScreen({ onLogin }: AuthScreenProps) {
           <div className="bg-[var(--color-background-base)] p-4 rounded-full border border-[var(--color-border-subtle)] mb-4">
             <ShieldCheck size={40} className="text-[var(--color-accent-blue)]" />
           </div>
-          <h2 className="text-2xl font-bold text-white mb-2">Access Dashboard</h2>
+          <h2 className="text-2xl font-bold text-white mb-2">访问控制台</h2>
           <p className="text-[var(--color-text-secondary)] text-center text-sm">
-            Enter your Admin API Key to manage certificates and monitor agent health.
+            输入您的 Admin API Key 以管理证书和监控 Agent 状态。
           </p>
         </div>
 
@@ -82,19 +82,19 @@ export default function AuthScreen({ onLogin }: AuthScreenProps) {
             {isVerifying ? (
               <>
                 <Loader2 className="animate-spin -ml-1 mr-2 h-4 w-4" />
-                Verifying...
+                验证中...
               </>
             ) : (
-              'Connect'
+              '连接'
             )}
           </button>
         </form>
       </div>
-      
+
       <div className="mt-8 text-xs text-[var(--color-text-secondary)] flex gap-4 opacity-50">
-        <span>Port 443 API</span>
+        <span>443 端口 API</span>
         <span>•</span>
-        <span>8443 Token Auth</span>
+        <span>8443 端口 Agent API</span>
       </div>
     </div>
   );

@@ -12,6 +12,13 @@ interface Agent {
   created_at: string;
 }
 
+// 状态映射
+const statusMap: Record<string, string> = {
+  'active': '活跃',
+  'pending_approval': '待审批',
+  'revoked': '已撤销'
+};
+
 export default function AgentsPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -25,7 +32,7 @@ export default function AgentsPage() {
       const data = await apiFetch<{ items: Agent[] }>('/agents');
       setAgents(data.items || []);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch');
+      setError(err instanceof Error ? err.message : '获取失败');
     } finally {
       setLoading(false);
     }
@@ -45,9 +52,9 @@ export default function AgentsPage() {
       setNewName('');
       setShowCreate(false);
       fetchAgents();
-      showToast(`Agent "${newName.trim()}" created – waiting for it to self-register`);
+      showToast(`Agent "${newName.trim()}" 已创建 – 等待自注册`);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to create');
+      setError(err instanceof Error ? err.message : '创建失败');
     }
   };
 
@@ -55,20 +62,20 @@ export default function AgentsPage() {
     try {
       await apiPost(`/agents/${id}/approve`);
       fetchAgents();
-      showToast(`Agent "${name}" approved`);
+      showToast(`Agent "${name}" 已批准`);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to approve');
+      setError(err instanceof Error ? err.message : '批准失败');
     }
   };
 
   const handleReject = async (id: string, name: string) => {
-    if (!confirm(`Reject agent "${name}"? This cannot be undone.`)) return;
+    if (!confirm(`确定要拒绝 Agent "${name}" 吗？此操作不可撤销。`)) return;
     try {
       await apiPost(`/agents/${id}/reject`);
       fetchAgents();
-      showToast(`Agent "${name}" rejected`);
+      showToast(`Agent "${name}" 已拒绝`);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to reject');
+      setError(err instanceof Error ? err.message : '拒绝失败');
     }
   };
 
@@ -91,17 +98,17 @@ export default function AgentsPage() {
         <div>
           <h2 className="text-2xl font-bold flex items-center gap-3">
             <Server size={24} className="text-[var(--color-accent-blue)]" />
-            Agents
+            Agent 管理
           </h2>
           <p className="text-sm text-[var(--color-text-secondary)] mt-1">
-            Manage agent registrations. Agents self-register via TOFU and await admin approval.
+            管理 Agent 注册。Agent 通过 TOFU 自注册后等待管理员审批。
           </p>
         </div>
         <button
           onClick={() => setShowCreate(true)}
           className="flex items-center gap-2 px-4 py-2.5 bg-[var(--color-accent-blue)] hover:bg-[var(--color-accent-blue)]/80 text-white rounded-lg text-sm font-medium transition-colors"
         >
-          <Plus size={16} /> New Agent Slot
+          <Plus size={16} /> 预创建 Agent
         </button>
       </div>
 
@@ -123,27 +130,27 @@ export default function AgentsPage() {
       {/* Create dialog */}
       {showCreate && (
         <div className="glass-panel p-6 space-y-4">
-          <h3 className="font-semibold">Pre-register Agent Slot</h3>
+          <h3 className="font-semibold">预注册 Agent 槽位</h3>
           <p className="text-xs text-[var(--color-text-secondary)]">
-            Create a named slot. The agent will self-register via TOFU and wait for approval.
+            创建一个命名槽位。Agent 将通过 TOFU 自注册并等待审批。
           </p>
           <div>
-            <label className="block text-xs text-[var(--color-text-secondary)] mb-1">Agent Name *</label>
+            <label className="block text-xs text-[var(--color-text-secondary)] mb-1">Agent 名称 *</label>
             <input
               type="text"
               value={newName}
               onChange={e => setNewName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleCreate()}
-              placeholder="e.g. web-node-01"
+              placeholder="例如: web-node-01"
               className="w-full bg-[var(--color-background-base)] border border-[var(--color-border-subtle)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[var(--color-accent-blue)] transition-colors"
             />
           </div>
           <div className="flex gap-2">
             <button onClick={handleCreate} className="px-4 py-2 bg-[var(--color-accent-blue)] hover:bg-[var(--color-accent-blue)]/80 text-white rounded-lg text-sm font-medium transition-colors">
-              Create
+              创建
             </button>
             <button onClick={() => { setShowCreate(false); setNewName(''); }} className="px-4 py-2 text-sm text-[var(--color-text-secondary)] hover:text-white transition-colors">
-              Cancel
+              取消
             </button>
           </div>
         </div>
@@ -155,17 +162,17 @@ export default function AgentsPage() {
           <div className="px-4 py-3 bg-amber-500/10 border-b border-amber-500/20 flex items-center gap-2">
             <Clock size={16} className="text-amber-400" />
             <span className="text-sm font-semibold text-amber-400">
-              Pending Approval ({pendingAgents.length})
+              待审批 ({pendingAgents.length})
             </span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
               <thead className="text-xs text-[var(--color-text-secondary)] uppercase bg-[var(--color-background-base)] border-b border-[var(--color-border-subtle)]">
                 <tr>
-                  <th className="px-4 py-3">Name</th>
-                  <th className="px-4 py-3">Fingerprint</th>
-                  <th className="px-4 py-3">Registered</th>
-                  <th className="px-4 py-3">Actions</th>
+                  <th className="px-4 py-3">名称</th>
+                  <th className="px-4 py-3">指纹</th>
+                  <th className="px-4 py-3">注册时间</th>
+                  <th className="px-4 py-3">操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -184,13 +191,13 @@ export default function AgentsPage() {
                           onClick={() => handleApprove(a.id, a.name)}
                           className="flex items-center gap-1 px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 rounded-lg text-xs font-medium transition-colors"
                         >
-                          <UserCheck size={12} /> Approve
+                          <UserCheck size={12} /> 批准
                         </button>
                         <button
                           onClick={() => handleReject(a.id, a.name)}
                           className="flex items-center gap-1 px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-xs font-medium transition-colors"
                         >
-                          <UserX size={12} /> Reject
+                          <UserX size={12} /> 拒绝
                         </button>
                       </div>
                     </td>
@@ -208,22 +215,22 @@ export default function AgentsPage() {
           <table className="w-full text-sm text-left">
             <thead className="text-xs text-[var(--color-text-secondary)] uppercase bg-[var(--color-background-base)] border-b border-[var(--color-border-subtle)]">
               <tr>
-                <th className="px-4 py-3">Name</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Fingerprint</th>
-                <th className="px-4 py-3">Last Seen</th>
-                <th className="px-4 py-3">Created</th>
+                <th className="px-4 py-3">名称</th>
+                <th className="px-4 py-3">状态</th>
+                <th className="px-4 py-3">指纹</th>
+                <th className="px-4 py-3">最后心跳</th>
+                <th className="px-4 py-3">创建时间</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={5} className="px-4 py-8 text-center text-[var(--color-text-secondary)]">Loading…</td></tr>
+                <tr><td colSpan={5} className="px-4 py-8 text-center text-[var(--color-text-secondary)]">加载中…</td></tr>
               ) : otherAgents.length === 0 ? (
                 <tr><td colSpan={5} className="px-4 py-12 text-center text-[var(--color-text-secondary)]">
                   <Server size={32} className="mx-auto mb-3 opacity-30" />
                   {agents.length === 0
-                    ? 'No agents yet. Create a slot or wait for an agent to self-register.'
-                    : 'No approved agents yet.'}
+                    ? '暂无 Agent。创建一个槽位或等待 Agent 自注册。'
+                    : '暂无已批准的 Agent。'}
                 </td></tr>
               ) : (
                 otherAgents.map(a => (
@@ -231,14 +238,14 @@ export default function AgentsPage() {
                     <td className="px-4 py-3 font-medium text-white">{a.name}</td>
                     <td className="px-4 py-3">
                       <span className={`text-xs px-2 py-1 rounded-full font-medium ${statusColor(a.status)}`}>
-                        {a.status}
+                        {statusMap[a.status] || a.status}
                       </span>
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-[var(--color-text-secondary)]">
                       {a.fingerprint ? `${a.fingerprint.substring(0, 16)}…` : '—'}
                     </td>
                     <td className="px-4 py-3 text-xs text-[var(--color-text-secondary)]">
-                      {a.last_seen ? formatDistanceToNow(new Date(a.last_seen), { addSuffix: true }) : 'Never'}
+                      {a.last_seen ? formatDistanceToNow(new Date(a.last_seen), { addSuffix: true }) : '从未'}
                     </td>
                     <td className="px-4 py-3 text-xs text-[var(--color-text-secondary)]">
                       {formatDistanceToNow(new Date(a.created_at), { addSuffix: true })}

@@ -37,6 +37,13 @@ interface AuditEvent {
   created_at: string;
 }
 
+// 状态映射
+const livenessMap: Record<string, string> = {
+  'online': '在线',
+  'delayed': '延迟',
+  'offline': '离线'
+};
+
 export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [agents, setAgents] = useState<AgentHealth[]>([]);
@@ -82,67 +89,67 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      
+
       {/* Top Stats Row */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard 
+        <StatCard
           icon={<Users size={24} className="text-[var(--color-accent-blue)]" />}
-          title="Total Agents"
+          title="Agent 总数"
           value={stats?.agents.total || 0}
-          subtitle={`${stats?.agents.active || 0} active`}
+          subtitle={`${stats?.agents.active || 0} 个活跃`}
         />
-        <StatCard 
+        <StatCard
           icon={<CheckCircle2 size={24} className="text-[var(--color-status-green)]" />}
-          title="Active Certificates"
+          title="活跃证书"
           value={stats?.certificates.total_active || 0}
         />
-        <StatCard 
+        <StatCard
           icon={
-            stats?.certificates.expiring_soon && stats.certificates.expiring_soon > 0 
+            stats?.certificates.expiring_soon && stats.certificates.expiring_soon > 0
               ? <AlertTriangle size={24} className="text-[var(--color-status-yellow)]" />
               : <ShieldAlert size={24} className="text-[var(--color-text-secondary)]" />
           }
-          title="Expiring Soon (30d)"
+          title="即将过期 (30天内)"
           value={stats?.certificates.expiring_soon || 0}
           valueColor={stats?.certificates.expiring_soon && stats.certificates.expiring_soon > 0 ? 'text-[var(--color-status-yellow)]' : ''}
         />
-        <StatCard 
+        <StatCard
           icon={<Activity size={24} className="text-[var(--color-accent-blue)]" />}
-          title="Running Rollouts"
+          title="运行中的 Rollout"
           value={stats?.rollouts.running || 0}
         />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
+
         {/* Main Column: Agents Table */}
         <div className="lg:col-span-2 space-y-6">
           <div className="glass-panel p-6">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-lg font-semibold flex items-center gap-2">
                 <Activity size={20} className="text-[var(--color-text-secondary)]"/>
-                Agent Health
+                Agent 健康状态
               </h3>
               <span className="text-xs text-[var(--color-text-secondary)]">
-                Last updated: {format(lastRefresh, 'HH:mm:ss')}
+                更新时间: {format(lastRefresh, 'HH:mm:ss')}
               </span>
             </div>
-            
+
             <div className="overflow-x-auto">
               <table className="w-full text-sm text-left">
                 <thead className="text-xs text-[var(--color-text-secondary)] uppercase bg-[var(--color-background-base)] border-b border-[var(--color-border-subtle)]">
                   <tr>
-                    <th className="px-4 py-3 rounded-tl-lg">Agent Name</th>
-                    <th className="px-4 py-3">Liveness</th>
-                    <th className="px-4 py-3">Cert Expires</th>
-                    <th className="px-4 py-3 rounded-tr-lg">Last Seen</th>
+                    <th className="px-4 py-3 rounded-tl-lg">Agent 名称</th>
+                    <th className="px-4 py-3">存活状态</th>
+                    <th className="px-4 py-3">证书过期</th>
+                    <th className="px-4 py-3 rounded-tr-lg">最后心跳</th>
                   </tr>
                 </thead>
                 <tbody>
                   {agents.length === 0 ? (
                     <tr>
                       <td colSpan={4} className="px-4 py-8 text-center text-[var(--color-text-secondary)]">
-                        No agents registered yet.
+                        暂无已注册的 Agent
                       </td>
                     </tr>
                   ) : (
@@ -152,14 +159,14 @@ export default function Dashboard() {
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
                             <span className={`status-dot ${agent.liveness}`}></span>
-                            <span className="capitalize text-xs">{agent.liveness}</span>
+                            <span className="text-xs">{livenessMap[agent.liveness] || agent.liveness}</span>
                           </div>
                         </td>
                         <td className="px-4 py-3 font-mono text-xs">
                           {agent.cert_expires_at ? format(new Date(agent.cert_expires_at), 'yyyy-MM-dd') : '-'}
                         </td>
                         <td className="px-4 py-3 text-xs text-[var(--color-text-secondary)]">
-                          {agent.last_seen ? formatDistanceToNow(new Date(agent.last_seen), { addSuffix: true }) : 'Never'}
+                          {agent.last_seen ? formatDistanceToNow(new Date(agent.last_seen), { addSuffix: true }) : '从未'}
                         </td>
                       </tr>
                     ))
@@ -172,16 +179,16 @@ export default function Dashboard() {
 
         {/* Sidebar Column: Expirations & Timeline */}
         <div className="space-y-6">
-          
+
           {/* Expirations Card */}
           <div className="glass-panel p-6">
             <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
               <AlertTriangle size={20} className="text-[var(--color-status-yellow)]"/>
-              Upcoming Expirations
+              即将过期的证书
             </h3>
             <div className="space-y-3">
               {expirations.length === 0 ? (
-                <p className="text-sm text-[var(--color-text-secondary)]">No certificates expiring within 30 days.</p>
+                <p className="text-sm text-[var(--color-text-secondary)]">30 天内无证书过期</p>
               ) : (
                 expirations.map((cert) => (
                   <div key={cert.id} className="bg-[var(--color-background-base)] p-3 rounded-md border border-[var(--color-border-subtle)]">
@@ -202,7 +209,7 @@ export default function Dashboard() {
           <div className="glass-panel p-6">
             <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
               <History size={20} className="text-[var(--color-text-secondary)]"/>
-              Recent Activity
+              最近操作
             </h3>
             <div className="relative border-l border-[var(--color-border-subtle)] ml-3 space-y-6">
               {events.slice(0, 5).map((ev) => (
@@ -217,7 +224,7 @@ export default function Dashboard() {
                 </div>
               ))}
               {events.length === 0 && (
-                <div className="ml-5 text-sm text-[var(--color-text-secondary)]">No recent activity.</div>
+                <div className="ml-5 text-sm text-[var(--color-text-secondary)]">暂无操作记录</div>
               )}
             </div>
           </div>

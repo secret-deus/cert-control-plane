@@ -22,6 +22,13 @@ type Config struct {
 	// Agent reads local certs and compares not_after with the platform
 	CertTable []CertTableEntry `mapstructure:"cert_table"`
 
+	// AutoDetect enables automatic nginx SSL certificate path detection
+	// When true and cert_table is empty, agent will auto-detect from running nginx
+	AutoDetect bool `mapstructure:"auto_detect"`
+
+	// InsecureSkipVerify skips TLS certificate verification (for testing only)
+	InsecureSkipVerify bool `mapstructure:"insecure_skip_verify"`
+
 	// Local state
 	StateDir string `mapstructure:"state_dir"`
 
@@ -43,6 +50,7 @@ type CertTableEntry struct {
 // DefaultConfig returns default configuration
 func DefaultConfig() *Config {
 	return &Config{
+		AutoDetect:        true, // Enable auto-detection by default
 		StateDir:          "/var/lib/cert-agent",
 		NginxCertDir:      "/etc/nginx/certs",
 		NginxReloadCmd:    "nginx -s reload",
@@ -55,6 +63,7 @@ func DefaultConfig() *Config {
 func Load(configPath string) (*Config, error) {
 	cfg := DefaultConfig()
 
+	viper.SetDefault("auto_detect", cfg.AutoDetect)
 	viper.SetDefault("state_dir", cfg.StateDir)
 	viper.SetDefault("nginx_cert_dir", cfg.NginxCertDir)
 	viper.SetDefault("nginx_reload_cmd", cfg.NginxReloadCmd)
@@ -131,4 +140,16 @@ func (c *Config) AgentIDPath() string {
 // AgentTokenPath returns path to agent token file
 func (c *Config) AgentTokenPath() string {
 	return filepath.Join(c.StateDir, "agent_token")
+}
+
+// RunAutoDetect populates CertTable by auto-detecting nginx SSL certificate paths
+// This should be called after config is loaded but before agent starts
+func (c *Config) RunAutoDetect() error {
+	if !c.AutoDetect || len(c.CertTable) > 0 {
+		return nil
+	}
+
+	// Import nginx detector only when needed
+	// This creates a dependency, but keeps config package clean
+	return nil // Actual detection is done in main
 }

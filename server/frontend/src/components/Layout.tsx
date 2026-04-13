@@ -9,12 +9,12 @@ interface LayoutProps {
 }
 
 const navItems = [
-  { to: '/dashboard',               icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/dashboard/agents',        icon: Server,          label: 'Agents' },
-  { to: '/dashboard/certificates',  icon: FileKey2,        label: 'Certificates' },
-  { to: '/dashboard/external-certs',icon: UploadCloud,     label: 'External Certs' },
-  { to: '/dashboard/rollouts',      icon: RefreshCw,       label: 'Rollouts' },
-  { to: '/dashboard/audit',         icon: ScrollText,      label: 'Audit Logs' },
+  { to: '/dashboard',               icon: LayoutDashboard, label: '仪表盘' },
+  { to: '/dashboard/agents',        icon: Server,          label: 'Agent 管理' },
+  { to: '/dashboard/certificates',  icon: FileKey2,        label: '已部署证书' },
+  { to: '/dashboard/external-certs',icon: UploadCloud,     label: '外部证书' },
+  { to: '/dashboard/rollouts',      icon: RefreshCw,       label: '批量轮换' },
+  { to: '/dashboard/audit',         icon: ScrollText,      label: '审计日志' },
 ];
 
 export default function Layout({ onLogout }: LayoutProps) {
@@ -56,13 +56,13 @@ export default function Layout({ onLogout }: LayoutProps) {
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--color-status-green)] opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--color-status-green)]"></span>
             </span>
-            System Online
+            系统运行中
           </div>
           <button
             onClick={onLogout}
             className="w-full text-xs text-[var(--color-text-secondary)] hover:text-white transition-colors text-left"
           >
-            Sign Out
+            退出登录
           </button>
         </div>
       </aside>

@@ -74,10 +74,11 @@ func (r *Runner) ensureKeyPair() (string, error) {
 
 	if _, err := os.Stat(keyPath); os.IsNotExist(err) {
 		r.logger.Info("Generating new key pair", zap.String("path", keyPath))
-		if _, err := crypto.GenerateKeyPair(3072); err != nil {
+		key, err := crypto.GenerateKeyPair(3072)
+		if err != nil {
 			return "", fmt.Errorf("failed to generate key: %w", err)
 		}
-		if err := crypto.SavePrivateKey(nil, keyPath); err != nil {
+		if err := crypto.SavePrivateKey(key, keyPath); err != nil {
 			return "", fmt.Errorf("failed to save key: %w", err)
 		}
 	}
@@ -193,25 +194,43 @@ func (r *Runner) fetchAndDeployCerts() error {
 		check := client.CertCheckItem{LocalPath: entry.LocalPath}
 
 		// Read current cert's not_after if it exists
-		if notAfter, err := readCertNotAfter(entry.LocalPath); err == nil && notAfter != "" {
+		notAfter, err := readCertNotAfter(entry.LocalPath)
+		if err != nil {
+			r.logger.Warn("Failed to read cert not_after",
+				zap.String("path", entry.LocalPath),
+				zap.Error(err))
+		} else if notAfter != "" {
 			check.CurrentNotAfter = &notAfter
+			r.logger.Info("Current cert not_after",
+				zap.String("path", entry.LocalPath),
+				zap.String("not_after", notAfter))
 		}
 
 		checks = append(checks, check)
 	}
 
+	r.logger.Info("Fetching certs from control plane", zap.Int("count", len(checks)))
 	resp, err := r.client.FetchCerts(checks)
 	if err != nil {
 		return fmt.Errorf("fetch-certs request failed: %w", err)
 	}
 
-	for _, update := range resp.Updates {
+	r.logger.Info("Fetch-certs response", zap.Int("updates_count", len(resp.Updates)))
+	for i, update := range resp.Updates {
+		r.logger.Info("Update result",
+			zap.Int("index", i),
+			zap.String("path", update.LocalPath),
+			zap.Bool("has_update", update.HasUpdate),
+			zap.Any("not_after", update.NotAfter))
 		if !update.HasUpdate {
+			r.logger.Info("No update needed", zap.String("path", update.LocalPath))
 			continue
 		}
-		r.logger.Info("Cert update available", zap.String("path", update.LocalPath))
+		r.logger.Info("Cert update available, deploying", zap.String("path", update.LocalPath))
 		if err := r.deployCertUpdate(update); err != nil {
 			r.logger.Error("Failed to deploy cert", zap.String("path", update.LocalPath), zap.Error(err))
+		} else {
+			r.logger.Info("Cert deployed successfully", zap.String("path", update.LocalPath))
 		}
 	}
 
@@ -278,6 +297,7 @@ func (r *Runner) deployCertUpdate(update client.CertUpdateItem) error {
 			restoreBackup(oldKeyPath, keyPath)
 			return fmt.Errorf("nginx reload failed: %w - %s", err, string(output))
 		}
+		r.logger.Info("Nginx reloaded")
 	}
 
 	// Clean up backups
@@ -285,6 +305,23 @@ func (r *Runner) deployCertUpdate(update client.CertUpdateItem) error {
 	os.Remove(oldKeyPath)
 
 	r.logger.Info("Cert deployed", zap.String("path", certPath))
+
+	// Report to control plane
+	if update.CertPEM != nil {
+		reportItem := client.ReportCertItem{
+			LocalPath: certPath,
+			CertPEM:   *update.CertPEM,
+		}
+		if update.ChainPEM != nil {
+			reportItem.ChainPEM = update.ChainPEM
+		}
+		if _, err := r.client.ReportCerts([]client.ReportCertItem{reportItem}); err != nil {
+			r.logger.Warn("Failed to report cert to control plane", zap.Error(err))
+		} else {
+			r.logger.Info("Cert reported to control plane", zap.String("path", certPath))
+		}
+	}
+
 	return nil
 }
 
