@@ -12,13 +12,14 @@ TLS 证书生命周期管理系统，当前基线为 **外部证书分发模式*
 
 | 端口 | 用途 | 认证方式 |
 |------|------|---------|
-| **443** | Control API (运维管理) | `X-Admin-API-Key` 请求头 |
-| **8443** | Agent API (节点通信) | `X-Agent-Token` |
+| **8000** | Control API (运维管理) | `X-Admin-API-Key` 请求头 |
+| **8001** | Agent API (节点通信) | `X-Agent-Token` |
 
-- 推荐将 Agent API 与 Control API 通过不同入口或端口隔离
+- Control API 与 Agent API 通过不同端口隔离
 - Agent 首次调用 `/api/agent/register` 完成 TOFU 注册；如果管理员提前预创建了同名槽位，这一步会绑定首次上报的指纹
 - Agent 只有完成首次自注册并绑定指纹后，管理员才能审批并颁发 `agent_token`
 - Agent 随后通过 `heartbeat + fetch-certs` 维持在线状态并拉取证书更新
+- **HTTPS 支持**: 本系统默认以 HTTP 模式运行，可通过 nginx/HAProxy/负载均衡器反向代理实现 HTTPS
 
 ## 技术栈
 
@@ -46,50 +47,32 @@ TLS 证书生命周期管理系统，当前基线为 **外部证书分发模式*
 bash start.sh
 ```
 
-脚本会自动完成：检查依赖 → 生成 `.env` 密钥 → 生成本地 TLS 证书 → 启动后端 + 前端。启动后打开前端页面，输入 `.env` 文件中的 `ADMIN_API_KEY` 即可。
+脚本会自动完成：检查依赖 → 生成 `.env` 密钥 → 启动后端 + 前端。启动后打开前端页面，输入 `.env` 文件中的 `ADMIN_API_KEY` 即可。
 
 ---
 
-### 手动启动
-
-#### 1. 生成本地 TLS 证书
+### Docker Compose 部署（推荐用于测试）
 
 ```bash
-pip install cryptography
-python scripts/init_ca.py --out-dir ./certs
-```
-
-#### 2. 配置环境变量
-
-```bash
+# 1. 配置环境变量
 cp .env.example .env
-```
+# 编辑 .env 填入密钥（或脚本会自动生成）
 
-编辑 `.env` 并填入：
+# 2. 启动服务
+docker compose up -d --build
 
-```bash
-# 必填：生成 Fernet 密钥
-CA_KEY_ENCRYPTION_KEY=$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
-
-# 必填：生成 Admin API Key
-ADMIN_API_KEY=$(python -c "import secrets; print(secrets.token_hex(32))")
-```
-
-#### 3. 启动服务
-
-```bash
-# Docker 方式
-docker compose up -d
-
-# 或本地开发方式 (SQLite)
-uvicorn app.main:app --host 127.0.0.1 --port 8000
+# 3. 验证服务
+curl http://localhost:8000/healthz
+curl http://localhost:8001/api/agent/register
 ```
 
 服务启动后：
-- 控制 API：`https://localhost:443`
-- API 文档：`https://localhost:443/docs`
-- 健康检查：`https://localhost:443/healthz`
-- Agent API：`https://localhost:8443`
+- Control API：`http://localhost:8000`
+- API 文档：`http://localhost:8000/docs`
+- 健康检查：`http://localhost:8000/healthz`
+- Agent API：`http://localhost:8001`
+
+> **注意**: 默认以 HTTP 模式运行，如需 HTTPS，请在前面放置 nginx/HAProxy 反向代理
 
 ### 5. 访问 Web 仪表盘 (Dashboard)
 
@@ -97,12 +80,12 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000
 
 1. 进入前端目录并构建静态资源：
    ```bash
-   cd frontend
+   cd server/frontend
    npm install
    npm run build
    ```
    > FastAPI 会自动服务 `frontend/dist` 目录。
-2. 在浏览器中打开 `https://localhost:443/dashboard`
+2. 在浏览器中打开 `http://localhost:8000/dashboard`
 3. 弹窗提示输入 `API Key`，请填入 `.env` 中的 `ADMIN_API_KEY` 以解锁面板。
 4. 面板每 30 秒自动刷新，展示 Agent 状态、证书过期警告与操作审计。
 
