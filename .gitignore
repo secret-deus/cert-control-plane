@@ -93,3 +93,7 @@ server/playwright-report/
 setup_doc.png
 server/tests/
 PLAN.md
+
+# Frontend build artifacts
+server/frontend-next/
+server/frontend/playwright-report/
