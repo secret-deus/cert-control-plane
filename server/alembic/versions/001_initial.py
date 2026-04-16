@@ -30,11 +30,11 @@ def upgrade() -> None:
         sa.Column(
             "status",
             sa.Enum(
-                "pending", "active", "revoked", "expired",
+                "PENDING_APPROVAL", "ACTIVE", "REVOKED",
                 name="agentstatus",
             ),
             nullable=False,
-            server_default="pending",
+            server_default="PENDING_APPROVAL",
         ),
         sa.Column("fingerprint", sa.String(64)),
         sa.Column("last_seen", sa.DateTime(timezone=True)),
@@ -82,11 +82,11 @@ def upgrade() -> None:
         sa.Column(
             "status",
             sa.Enum(
-                "pending", "running", "paused", "completed", "failed", "rolled_back",
+                "PENDING", "RUNNING", "PAUSED", "COMPLETED", "FAILED", "ROLLED_BACK",
                 name="rolloutstatus",
             ),
             nullable=False,
-            server_default="pending",
+            server_default="PENDING",
         ),
         sa.Column("batch_size", sa.Integer, nullable=False, server_default="10"),
         sa.Column("current_batch", sa.Integer, nullable=False, server_default="0"),
@@ -125,11 +125,11 @@ def upgrade() -> None:
         sa.Column(
             "status",
             sa.Enum(
-                "pending", "in_progress", "completed", "failed", "rolled_back",
+                "PENDING", "IN_PROGRESS", "COMPLETED", "FAILED", "ROLLED_BACK",
                 name="rolloutitemstatus",
             ),
             nullable=False,
-            server_default="pending",
+            server_default="PENDING",
         ),
         sa.Column("batch_number", sa.Integer, nullable=False),
         sa.Column("previous_cert_id", postgresql.UUID(as_uuid=True),

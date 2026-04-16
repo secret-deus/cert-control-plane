@@ -58,18 +58,35 @@ def _constraint_exists(table: str, constraint: str) -> bool:
     return result.scalar() is not None
 
 
+def _enum_value_exists(enum_name: str, value: str) -> bool:
+    """Check if an enum value exists."""
+    conn = op.get_bind()
+    result = conn.execute(
+        sa.text(
+            "SELECT 1 FROM pg_enum "
+            "JOIN pg_type ON pg_type.oid = pg_enum.enumtypid "
+            "WHERE pg_type.typname = :enum_name AND pg_enum.enumlabel = :value"
+        ),
+        {"enum_name": enum_name, "value": value},
+    )
+    return result.scalar() is not None
+
+
 def upgrade() -> None:
     conn = op.get_bind()
 
     # Align agent status labels with the current model.
-    conn.execute(
-        sa.text(
-            "ALTER TYPE agentstatus RENAME VALUE 'pending' TO 'pending_approval'"
+    # Only rename if the old value exists (for upgrading from legacy schema)
+    if _enum_value_exists("agentstatus", "PENDING"):
+        conn.execute(
+            sa.text(
+                "ALTER TYPE agentstatus RENAME VALUE 'PENDING' TO 'PENDING_APPROVAL'"
+            )
         )
-    )
+    # Ensure default is set correctly
     conn.execute(
         sa.text(
-            "ALTER TABLE agents ALTER COLUMN status SET DEFAULT 'pending_approval'"
+            "ALTER TABLE agents ALTER COLUMN status SET DEFAULT 'PENDING_APPROVAL'"
         )
     )
 
@@ -179,10 +196,10 @@ def downgrade() -> None:
         op.drop_column("agents", "agent_token")
 
     conn.execute(
-        sa.text("ALTER TABLE agents ALTER COLUMN status SET DEFAULT 'pending'")
+        sa.text("ALTER TABLE agents ALTER COLUMN status SET DEFAULT 'PENDING'")
     )
     conn.execute(
         sa.text(
-            "ALTER TYPE agentstatus RENAME VALUE 'pending_approval' TO 'pending'"
+            "ALTER TYPE agentstatus RENAME VALUE 'PENDING_APPROVAL' TO 'PENDING'"
         )
     )

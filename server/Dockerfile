@@ -35,11 +35,33 @@ COPY --from=frontend-builder /frontend/dist /app/frontend/dist
 # Create certs directory (will be mounted as volume)
 RUN mkdir -p /certs && chown appuser:appuser /certs
 
+# Create startup script for dual-port mode
+RUN cat > /app/start.sh << 'EOF'
+#!/bin/bash
+set -e
+
+# Run migrations first
+alembic upgrade head
+
+# Start Control API on port 8000
+uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+CONTROL_PID=$!
+
+# Start Agent API on port 8001 (same app, different port)
+uvicorn app.main:app --host 0.0.0.0 --port 8001 &
+AGENT_PID=$!
+
+# Wait for both processes
+wait $CONTROL_PID $AGENT_PID
+EOF
+
+RUN chmod +x /app/start.sh
+
 # Switch to non-root user
 USER appuser
 
 EXPOSE 8000
+EXPOSE 8001
 
-# Run migrations then start server
-# Migrations run separately so failures are clearly visible
-CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# Run startup script
+CMD ["/app/start.sh"]
