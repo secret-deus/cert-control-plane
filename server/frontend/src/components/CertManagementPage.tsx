@@ -1,50 +1,118 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Search, UploadCloud, RefreshCw, ChevronDown, ChevronUp, X, ShieldCheck } from 'lucide-react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { FileKey2, RefreshCw, Search, ShieldCheck, UploadCloud, X } from 'lucide-react';
+import { format, formatDistanceToNow } from 'date-fns';
 import { apiFetch, apiPost } from '../lib/api';
-import { format } from 'date-fns';
+
+interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  skip: number;
+  limit: number;
+}
 
 interface ExternalCert {
   id: string;
   name: string;
+  description: string | null;
   subject_cn: string;
   serial_hex: string;
   not_before: string;
   not_after: string;
   provider: string | null;
   is_active: boolean;
-  auto_renew: boolean;
   created_at: string;
+  updated_at: string;
 }
 
-interface CertAssignment {
+interface ExternalCertDetail extends ExternalCert {
+  cert_pem: string;
+  chain_pem: string | null;
+}
+
+interface AgentSummary {
+  id: string;
+  name: string;
+  status: string;
+  liveness: 'online' | 'delayed' | 'offline';
+  cert_count: number;
+  expiring_soon_count: number;
+}
+
+interface RawAgentAssignment {
   id: string;
   agent_id: string;
-  agent_name: string;
-  local_path: string;
   external_cert_id: string;
+  local_path: string;
   created_at: string;
 }
 
-type FilterStatus = 'all' | 'active' | 'expiring' | 'expired' | 'inactive';
+interface CertAssignment extends RawAgentAssignment {
+  agent_name: string;
+  agent_liveness: 'online' | 'delayed' | 'offline';
+}
 
-const urgencyLabel = (days: number): { text: string; cls: string } => {
-  if (days < 0) return { text: '已过期', cls: 'text-red-400 bg-red-500/10' };
-  if (days <= 7) return { text: '7天内', cls: 'text-red-400 bg-red-500/10' };
-  if (days <= 30) return { text: '30天内', cls: 'text-yellow-400 bg-yellow-500/10' };
-  return { text: '正常', cls: 'text-green-400 bg-green-500/10' };
+type FilterStatus = 'all' | 'healthy' | 'warning' | 'critical' | 'inactive';
+
+const providerLabels: Record<string, string> = {
+  manual: '手动上传',
+  aliyun: '阿里云',
+  letsencrypt: "Let's Encrypt",
+  digicert: 'DigiCert',
 };
+
+const livenessTone: Record<'online' | 'delayed' | 'offline', string> = {
+  online: 'bg-emerald-400',
+  delayed: 'bg-amber-400',
+  offline: 'bg-rose-400',
+};
+
+function getDaysRemaining(notAfter: string) {
+  return Math.ceil((new Date(notAfter).getTime() - Date.now()) / 86400000);
+}
+
+function getCertHealth(daysRemaining: number, isActive: boolean) {
+  if (!isActive) {
+    return { label: '未启用', tone: 'border-white/10 bg-white/5 text-slate-300' };
+  }
+  if (daysRemaining < 0) {
+    return { label: '已过期', tone: 'border-rose-300/15 bg-rose-500/10 text-rose-200' };
+  }
+  if (daysRemaining <= 7) {
+    return { label: '7 天内到期', tone: 'border-rose-300/15 bg-rose-500/10 text-rose-200' };
+  }
+  if (daysRemaining <= 30) {
+    return { label: '30 天内关注', tone: 'border-amber-300/15 bg-amber-500/10 text-amber-200' };
+  }
+  return { label: '健康', tone: 'border-emerald-300/15 bg-emerald-500/10 text-emerald-200' };
+}
+
+function previewPem(pem: string, lineCount = 8) {
+  return pem.split('\n').slice(0, lineCount).join('\n').trim();
+}
 
 export default function CertManagementPage() {
   const [certs, setCerts] = useState<ExternalCert[]>([]);
+  const [agents, setAgents] = useState<AgentSummary[]>([]);
+  const [selectedCertId, setSelectedCertId] = useState<string | null>(null);
+  const [selectedCert, setSelectedCert] = useState<ExternalCertDetail | null>(null);
+  const [selectedAssignments, setSelectedAssignments] = useState<CertAssignment[]>([]);
+  const [bindingCounts, setBindingCounts] = useState<Record<string, number>>({});
   const [isLoading, setIsLoading] = useState(true);
+  const [isDetailLoading, setIsDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<FilterStatus>('all');
   const [search, setSearch] = useState('');
-  const [expandedCert, setExpandedCert] = useState<string | null>(null);
-  const [assignments, setAssignments] = useState<CertAssignment[]>([]);
   const [showUpload, setShowUpload] = useState(false);
+  const deferredSearch = useDeferredValue(search);
 
-  // Upload form
-  const [uploadForm, setUploadForm] = useState({ name: '', provider: 'manual', cert_pem: '', key_pem: '', chain_pem: '' });
+  const [uploadForm, setUploadForm] = useState({
+    name: '',
+    description: '',
+    provider: 'manual',
+    cert_pem: '',
+    key_pem: '',
+    chain_pem: '',
+  });
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState(false);
@@ -52,277 +120,526 @@ export default function CertManagementPage() {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [certsData] = await Promise.all([
-        apiFetch<{ items: ExternalCert[]; total: number }>('/external-certs?limit=1000'),
+      const [certsData, agentsData] = await Promise.all([
+        apiFetch<PaginatedResponse<ExternalCert>>('/external-certs?limit=1000'),
+        apiFetch<PaginatedResponse<AgentSummary>>('/agents?limit=1000'),
       ]);
+
       setCerts(certsData.items || []);
-    } catch (err) {
-      console.error('Failed to fetch certificates:', err);
+      setAgents(agentsData.items || []);
+      setSelectedCertId((current) => {
+        const exists = current && certsData.items.some((cert) => cert.id === current);
+        return exists ? current : certsData.items[0]?.id ?? null;
+      });
+    } catch (error) {
+      console.error('Failed to fetch certificates:', error);
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  const loadCertDetail = useCallback(async (certId: string, agentSnapshot: AgentSummary[]) => {
+    setIsDetailLoading(true);
+    setDetailError(null);
 
-  const fetchAssignments = async (certId: string) => {
     try {
-      const data = await apiFetch<{ items: CertAssignment[] }>(`/external-certs/${certId}/assignments`);
-      setAssignments(data.items || []);
-    } catch {
-      setAssignments([]);
-    }
-  };
+      const [detail, assignmentResults] = await Promise.all([
+        apiFetch<ExternalCertDetail>(`/external-certs/${certId}`),
+        Promise.allSettled(
+          agentSnapshot.map(async (agent) => {
+            const items = await apiFetch<RawAgentAssignment[]>(`/agents/${agent.id}/assignments`);
+            return items
+              .filter((assignment) => assignment.external_cert_id === certId)
+              .map((assignment) => ({
+                ...assignment,
+                agent_name: agent.name,
+                agent_liveness: agent.liveness,
+              }));
+          })
+        ),
+      ]);
 
-  const handleExpand = (certId: string) => {
-    if (expandedCert === certId) {
-      setExpandedCert(null);
-    } else {
-      setExpandedCert(certId);
-      fetchAssignments(certId);
-    }
-  };
+      const derivedAssignments = assignmentResults
+        .flatMap((result) => (result.status === 'fulfilled' ? result.value : []))
+        .sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime());
 
-  const handleUpload = async (e: React.FormEvent) => {
-    e.preventDefault();
+      setSelectedCert(detail);
+      setSelectedAssignments(derivedAssignments);
+      setBindingCounts((current) => ({ ...current, [certId]: derivedAssignments.length }));
+    } catch (error) {
+      setSelectedCert(null);
+      setSelectedAssignments([]);
+      setDetailError(error instanceof Error ? error.message : '读取证书详情失败');
+    } finally {
+      setIsDetailLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchData();
+  }, [fetchData]);
+
+  useEffect(() => {
+    if (!selectedCertId) {
+      setSelectedCert(null);
+      setSelectedAssignments([]);
+      setDetailError(null);
+      return;
+    }
+
+    void loadCertDetail(selectedCertId, agents);
+  }, [selectedCertId, agents, loadCertDetail]);
+
+  const handleUpload = async (event: React.FormEvent) => {
+    event.preventDefault();
     setUploading(true);
     setUploadError(null);
     setUploadSuccess(false);
+
     try {
       await apiPost('/external-certs', uploadForm);
       setUploadSuccess(true);
-      setUploadForm({ name: '', provider: 'manual', cert_pem: '', key_pem: '', chain_pem: '' });
-      setTimeout(() => { setShowUpload(false); setUploadSuccess(false); }, 1500);
-      fetchData();
-    } catch (err) {
-      setUploadError(err instanceof Error ? err.message : '上传失败');
+      setUploadForm({
+        name: '',
+        description: '',
+        provider: 'manual',
+        cert_pem: '',
+        key_pem: '',
+        chain_pem: '',
+      });
+      await fetchData();
+      window.setTimeout(() => {
+        setShowUpload(false);
+        setUploadSuccess(false);
+      }, 1200);
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : '上传失败');
     } finally {
       setUploading(false);
     }
   };
 
-  const now = new Date();
-  const filteredCerts = certs.filter(c => {
-    const days = Math.ceil((new Date(c.not_after).getTime() - now.getTime()) / (86400000));
-    if (statusFilter === 'active') return c.is_active && days > 30;
-    if (statusFilter === 'expiring') return c.is_active && days > 0 && days <= 30;
-    if (statusFilter === 'expired') return days <= 0;
-    if (statusFilter === 'inactive') return !c.is_active;
-    return true;
-  }).filter(c => !search || c.subject_cn.toLowerCase().includes(search.toLowerCase()) || c.name.toLowerCase().includes(search.toLowerCase()));
+  const filteredCerts = useMemo(() => {
+    const keyword = deferredSearch.trim().toLowerCase();
 
-  const filterCounts = {
-    all: certs.length,
-    active: certs.filter(c => { const d = Math.ceil((new Date(c.not_after).getTime() - now.getTime()) / 86400000); return c.is_active && d > 30; }).length,
-    expiring: certs.filter(c => { const d = Math.ceil((new Date(c.not_after).getTime() - now.getTime()) / 86400000); return c.is_active && d > 0 && d <= 30; }).length,
-    expired: certs.filter(c => { const d = Math.ceil((new Date(c.not_after).getTime() - now.getTime()) / 86400000); return d <= 0; }).length,
-    inactive: certs.filter(c => !c.is_active).length,
-  };
+    return certs.filter((cert) => {
+      const daysRemaining = getDaysRemaining(cert.not_after);
+
+      if (statusFilter === 'healthy' && (!cert.is_active || daysRemaining <= 30)) {
+        return false;
+      }
+      if (statusFilter === 'warning' && (!cert.is_active || daysRemaining <= 7 || daysRemaining > 30)) {
+        return false;
+      }
+      if (statusFilter === 'critical' && (!cert.is_active || daysRemaining > 7)) {
+        return false;
+      }
+      if (statusFilter === 'inactive' && cert.is_active) {
+        return false;
+      }
+
+      if (!keyword) {
+        return true;
+      }
+
+      return [cert.subject_cn, cert.name, cert.serial_hex]
+        .filter(Boolean)
+        .some((value) => value.toLowerCase().includes(keyword));
+    });
+  }, [certs, deferredSearch, statusFilter]);
+
+  const counts = useMemo(() => {
+    return certs.reduce(
+      (result, cert) => {
+        const daysRemaining = getDaysRemaining(cert.not_after);
+        if (!cert.is_active) {
+          result.inactive += 1;
+        } else if (daysRemaining <= 7) {
+          result.critical += 1;
+        } else if (daysRemaining <= 30) {
+          result.warning += 1;
+        } else {
+          result.healthy += 1;
+        }
+        return result;
+      },
+      { healthy: 0, warning: 0, critical: 0, inactive: 0 }
+    );
+  }, [certs]);
+
+  const providerCount = useMemo(
+    () => new Set(certs.map((cert) => cert.provider || 'manual')).size,
+    [certs]
+  );
+
+  const selectedSummary = certs.find((cert) => cert.id === selectedCertId) || null;
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white">证书管理</h1>
-          <p className="text-sm text-zinc-400 mt-1">管理外部证书与分发状态</p>
+      <section className="glass-panel p-5 lg:p-6">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div>
+            <div className="section-kicker">Inventory</div>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white">证书资产</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
+              资产列表、详情抽屉和上传入口集中在这一页，先处理临近到期项，再检查绑定节点和证书内容。
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <span className="metric-badge border-white/10 bg-white/[0.03] text-slate-300">总数 {certs.length}</span>
+              <span className="metric-badge border-rose-300/15 bg-rose-500/10 text-rose-200">7 天内 {counts.critical}</span>
+              <span className="metric-badge border-amber-300/15 bg-amber-500/10 text-amber-200">30 天内 {counts.warning}</span>
+              {selectedSummary && (
+                <span className="metric-badge border-white/10 bg-white/[0.03] text-slate-300">
+                  当前 {selectedSummary.subject_cn}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 xl:pt-1">
+            <button onClick={() => void fetchData()} className="btn-secondary flex items-center gap-1.5" disabled={isLoading}>
+              <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} /> 刷新
+            </button>
+            <button onClick={() => setShowUpload((current) => !current)} className="btn-primary flex items-center gap-1.5">
+              <UploadCloud size={14} /> 上传证书
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={fetchData} className="btn-secondary flex items-center gap-1.5" disabled={isLoading}>
-            <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} /> 刷新
-          </button>
-          <button onClick={() => setShowUpload(!showUpload)} className="btn-primary flex items-center gap-1.5">
-            <UploadCloud size={14} /> 上传证书
-          </button>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {[
+            { label: '证书总数', value: certs.length, tone: 'border-white/10 bg-white/[0.03] text-slate-100' },
+            { label: '7 天内到期', value: counts.critical, tone: 'border-rose-300/15 bg-rose-500/10 text-rose-100' },
+            { label: '30 天内关注', value: counts.warning, tone: 'border-amber-300/15 bg-amber-500/10 text-amber-100' },
+            { label: '证书来源', value: providerCount, tone: 'border-white/10 bg-white/[0.03] text-slate-100' },
+          ].map((item) => (
+            <div key={item.label} className={`rounded-lg border p-4 ${item.tone}`}>
+              <div className="text-xs uppercase tracking-[0.18em] text-white/60">{item.label}</div>
+              <div className="mt-2 text-2xl font-semibold text-white">{item.value}</div>
+            </div>
+          ))}
         </div>
+      </section>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-1 flex-wrap items-center gap-3">
+          <label className="relative min-w-[260px] flex-1 max-w-md">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+            <input
+              className="input-field pl-9"
+              placeholder="搜索域名、证书名或序列号"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {([
+              ['all', '全部'],
+              ['healthy', '健康'],
+              ['warning', '30 天内'],
+              ['critical', '7 天内'],
+              ['inactive', '未启用'],
+            ] as Array<[FilterStatus, string]>).map(([status, label]) => (
+              <button
+                key={status}
+                type="button"
+                onClick={() => setStatusFilter(status)}
+                className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                  statusFilter === status
+                    ? 'border-teal-300/20 bg-teal-500/10 text-teal-100'
+                    : 'border-white/10 bg-white/[0.03] text-slate-400 hover:text-white'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
       </div>
 
-      {/* Upload form */}
       {showUpload && (
         <div className="glass-panel p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-white">上传新证书</h3>
-            <button onClick={() => setShowUpload(false)} className="text-zinc-400 hover:text-white"><X size={18} /></button>
-          </div>
-          {uploadError && <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-red-400 text-sm mb-4">{uploadError}</div>}
-          {uploadSuccess && <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3 text-green-400 text-sm mb-4">证书上传成功！</div>}
-          <form onSubmit={handleUpload} className="grid grid-cols-2 gap-4">
+          <div className="mb-4 flex items-center justify-between">
             <div>
-              <label className="block text-xs text-zinc-400 mb-1">名称</label>
-              <input className="input-field" value={uploadForm.name} onChange={e => setUploadForm(f => ({ ...f, name: e.target.value }))} required placeholder="api.example.com" />
+              <div className="section-kicker">Upload</div>
+              <h3 className="mt-2 text-lg font-semibold text-white">录入新证书</h3>
+            </div>
+            <button type="button" onClick={() => setShowUpload(false)} className="rounded-md border border-white/10 p-2 text-slate-400 hover:text-white">
+              <X size={18} />
+            </button>
+          </div>
+
+          {uploadError && <div className="mb-4 rounded-md border border-rose-300/15 bg-rose-500/10 p-3 text-sm text-rose-200">{uploadError}</div>}
+          {uploadSuccess && <div className="mb-4 rounded-md border border-emerald-300/15 bg-emerald-500/10 p-3 text-sm text-emerald-200">证书上传成功。</div>}
+
+          <form onSubmit={handleUpload} className="grid gap-4 lg:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs text-slate-400">显示名称</label>
+              <input
+                className="input-field"
+                value={uploadForm.name}
+                onChange={(event) => setUploadForm((current) => ({ ...current, name: event.target.value }))}
+                required
+                placeholder="api.example.com"
+              />
             </div>
             <div>
-              <label className="block text-xs text-zinc-400 mb-1">来源</label>
-              <select className="input-field" value={uploadForm.provider} onChange={e => setUploadForm(f => ({ ...f, provider: e.target.value }))}>
+              <label className="mb-1 block text-xs text-slate-400">来源</label>
+              <select
+                className="input-field"
+                value={uploadForm.provider}
+                onChange={(event) => setUploadForm((current) => ({ ...current, provider: event.target.value }))}
+              >
                 <option value="manual">手动上传</option>
                 <option value="aliyun">阿里云</option>
                 <option value="letsencrypt">Let's Encrypt</option>
                 <option value="digicert">DigiCert</option>
               </select>
             </div>
-            <div className="col-span-2">
-              <label className="block text-xs text-zinc-400 mb-1">证书 PEM</label>
-              <textarea className="input-field h-24 font-mono text-xs" value={uploadForm.cert_pem} onChange={e => setUploadForm(f => ({ ...f, cert_pem: e.target.value }))} required placeholder="-----BEGIN CERTIFICATE-----..." />
+            <div className="lg:col-span-2">
+              <label className="mb-1 block text-xs text-slate-400">备注</label>
+              <input
+                className="input-field"
+                value={uploadForm.description}
+                onChange={(event) => setUploadForm((current) => ({ ...current, description: event.target.value }))}
+                placeholder="例如：支付域名的生产证书"
+              />
             </div>
-            <div className="col-span-2">
-              <label className="block text-xs text-zinc-400 mb-1">私钥 PEM</label>
-              <textarea className="input-field h-24 font-mono text-xs" value={uploadForm.key_pem} onChange={e => setUploadForm(f => ({ ...f, key_pem: e.target.value }))} required placeholder="-----BEGIN PRIVATE KEY-----..." />
+            <div className="lg:col-span-2">
+              <label className="mb-1 block text-xs text-slate-400">证书 PEM</label>
+              <textarea
+                className="input-field h-28 font-mono text-xs"
+                value={uploadForm.cert_pem}
+                onChange={(event) => setUploadForm((current) => ({ ...current, cert_pem: event.target.value }))}
+                required
+                placeholder="-----BEGIN CERTIFICATE-----"
+              />
             </div>
-            <div className="col-span-2">
-              <label className="block text-xs text-zinc-400 mb-1">证书链 PEM（可选）</label>
-              <textarea className="input-field h-24 font-mono text-xs" value={uploadForm.chain_pem} onChange={e => setUploadForm(f => ({ ...f, chain_pem: e.target.value }))} placeholder="-----BEGIN CERTIFICATE-----..." />
+            <div className="lg:col-span-2">
+              <label className="mb-1 block text-xs text-slate-400">私钥 PEM</label>
+              <textarea
+                className="input-field h-28 font-mono text-xs"
+                value={uploadForm.key_pem}
+                onChange={(event) => setUploadForm((current) => ({ ...current, key_pem: event.target.value }))}
+                required
+                placeholder="-----BEGIN PRIVATE KEY-----"
+              />
             </div>
-            <div className="col-span-2 flex justify-end gap-2">
+            <div className="lg:col-span-2">
+              <label className="mb-1 block text-xs text-slate-400">证书链 PEM</label>
+              <textarea
+                className="input-field h-24 font-mono text-xs"
+                value={uploadForm.chain_pem}
+                onChange={(event) => setUploadForm((current) => ({ ...current, chain_pem: event.target.value }))}
+                placeholder="-----BEGIN CERTIFICATE-----"
+              />
+            </div>
+            <div className="lg:col-span-2 flex justify-end gap-2">
               <button type="button" onClick={() => setShowUpload(false)} className="btn-secondary">取消</button>
-              <button type="submit" disabled={uploading} className="btn-primary flex items-center gap-1.5">
-                {uploading ? '上传中...' : '上传'}
-              </button>
+              <button type="submit" className="btn-primary" disabled={uploading}>{uploading ? '上传中...' : '提交证书'}</button>
             </div>
           </form>
         </div>
       )}
 
-      {/* Filters */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="relative flex-1 max-w-xs">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
-          <input
-            className="input-field pl-9"
-            placeholder="搜索域名..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-        </div>
-        <div className="flex items-center gap-1">
-          {(['all', 'active', 'expiring', 'expired', 'inactive'] as FilterStatus[]).map(s => (
-            <button
-              key={s}
-              onClick={() => setStatusFilter(s)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                statusFilter === s ? 'bg-blue-500/20 text-blue-400' : 'text-zinc-400 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              {s === 'all' ? '全部' : s === 'active' ? '正常' : s === 'expiring' ? '即将过期' : s === 'expired' ? '已过期' : '不活跃'}
-              {filterCounts[s] !== undefined && <span className="ml-1 text-zinc-500">{filterCounts[s]}</span>}
-            </button>
-          ))}
-        </div>
-      </div>
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.9fr)_400px]">
+        <div className="glass-panel overflow-hidden">
+          <div className="border-b border-white/6 px-5 py-4">
+            <div className="section-kicker">Inventory Table</div>
+            <h3 className="mt-2 text-lg font-semibold text-white">证书资产列表</h3>
+            <p className="mt-1 text-sm text-slate-400">列表保留高频字段，详情放到右侧抽屉，不再把所有信息挤在一行里。</p>
+          </div>
 
-      {/* Certificate table */}
-      <div className="glass-panel overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-zinc-500 text-xs border-b border-white/5">
-                <th className="text-left py-3 px-4 font-medium">域名</th>
-                <th className="text-left py-3 px-4 font-medium">序列号</th>
-                <th className="text-left py-3 px-4 font-medium">来源</th>
-                <th className="text-left py-3 px-4 font-medium">到期时间</th>
-                <th className="text-left py-3 px-4 font-medium">剩余天数</th>
-                <th className="text-left py-3 px-4 font-medium">绑定节点</th>
-                <th className="text-left py-3 px-4 font-medium">状态</th>
-                <th className="text-left py-3 px-4 font-medium">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading ? (
-                Array.from({ length: 3 }).map((_, i) => (
-                  <tr key={i} className="border-b border-white/5">
-                    {Array.from({ length: 8 }).map((_, j) => (
-                      <td key={j} className="py-3 px-4"><div className="skeleton h-4 rounded" /></td>
-                    ))}
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-white/6 text-xs text-slate-500">
+                  <th className="px-5 py-3 text-left font-medium">证书主体</th>
+                  <th className="px-4 py-3 text-left font-medium">来源</th>
+                  <th className="px-4 py-3 text-left font-medium">到期时间</th>
+                  <th className="px-4 py-3 text-left font-medium">风险</th>
+                  <th className="px-4 py-3 text-left font-medium">分发节点</th>
+                  <th className="px-4 py-3 text-left font-medium">状态</th>
+                  <th className="px-5 py-3 text-left font-medium">动作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {isLoading ? (
+                  Array.from({ length: 4 }).map((_, index) => (
+                    <tr key={index} className="table-row">
+                      {Array.from({ length: 7 }).map((__, cellIndex) => (
+                        <td key={cellIndex} className="px-4 py-4">
+                          <div className="skeleton h-4 rounded" />
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                ) : filteredCerts.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-5 py-14 text-center text-sm text-slate-500">没有匹配的证书。</td>
                   </tr>
-                ))
-              ) : filteredCerts.length === 0 ? (
-                <tr><td colSpan={8} className="text-center py-12 text-zinc-500">暂无证书</td></tr>
-              ) : (
-                filteredCerts.map(cert => {
-                  const days = Math.ceil((new Date(cert.not_after).getTime() - now.getTime()) / 86400000);
-                  const urgency = urgencyLabel(days);
-                  const isExpanded = expandedCert === cert.id;
-                  const providerLabel: Record<string, string> = { manual: '手动上传', aliyun: '阿里云', letsencrypt: "Let's Encrypt", digicert: 'DigiCert' };
+                ) : (
+                  filteredCerts.map((cert) => {
+                    const daysRemaining = getDaysRemaining(cert.not_after);
+                    const health = getCertHealth(daysRemaining, cert.is_active);
+                    const isSelected = selectedCertId === cert.id;
+                    const bindingCount = bindingCounts[cert.id];
 
-                  return (
-                    <tbody key={cert.id}>
+                    return (
                       <tr
-                        className="border-b border-white/5 hover:bg-white/[0.02] transition-colors cursor-pointer"
-                        onClick={() => handleExpand(cert.id)}
+                        key={cert.id}
+                        className={`table-row cursor-pointer ${isSelected ? 'bg-teal-500/[0.06]' : ''}`}
+                        onClick={() => setSelectedCertId(cert.id)}
                       >
-                        <td className="py-3 px-4">
-                          <div className="flex items-center gap-2">
-                            {isExpanded ? <ChevronUp size={14} className="text-zinc-500" /> : <ChevronDown size={14} className="text-zinc-500" />}
+                        <td className="px-5 py-4">
+                          <div className="flex items-start gap-3">
+                            <div className="rounded-md border border-teal-300/12 bg-teal-500/10 p-2 text-teal-100">
+                              <FileKey2 size={16} />
+                            </div>
                             <div>
                               <div className="font-medium text-white">{cert.subject_cn}</div>
-                              <div className="text-xs text-zinc-500">{cert.name}</div>
+                              <div className="mt-1 text-xs text-slate-500">{cert.name}</div>
                             </div>
                           </div>
                         </td>
-                        <td className="py-3 px-4 font-mono text-xs text-zinc-500">{cert.serial_hex.substring(0, 16)}...</td>
-                        <td className="py-3 px-4 text-zinc-400">{providerLabel[cert.provider || 'manual'] || cert.provider}</td>
-                        <td className="py-3 px-4 text-zinc-400">{format(new Date(cert.not_after), 'yyyy-MM-dd')}</td>
-                        <td className="py-3 px-4">
-                          <span className={urgency.cls.split(' ')[1] || 'text-zinc-400'}>{urgency.text}</span>
-                          <span className="text-zinc-500 ml-1">
-                            {days < 0 ? `(${Math.abs(days)}天前)` : days === 0 ? '(今天)' : `(${days}天)`}
+                        <td className="px-4 py-4 text-slate-400">{providerLabels[cert.provider || 'manual'] || cert.provider || '手动上传'}</td>
+                        <td className="px-4 py-4 text-slate-300">{format(new Date(cert.not_after), 'yyyy-MM-dd')}</td>
+                        <td className="px-4 py-4">
+                          <span className={`rounded-full border px-2 py-0.5 text-xs ${health.tone}`}>{health.label}</span>
+                          <div className="mt-1 text-xs text-slate-500">
+                            {daysRemaining < 0 ? `已过期 ${Math.abs(daysRemaining)} 天` : `${daysRemaining} 天`}
+                          </div>
+                        </td>
+                        <td className="px-4 py-4 text-slate-400">{typeof bindingCount === 'number' ? `${bindingCount} 台` : '点选后计算'}</td>
+                        <td className="px-4 py-4">
+                          <span className={`rounded-full border px-2 py-0.5 text-xs ${cert.is_active ? 'border-emerald-300/15 bg-emerald-500/10 text-emerald-200' : 'border-white/10 bg-white/5 text-slate-300'}`}>
+                            {cert.is_active ? '活跃' : '未启用'}
                           </span>
                         </td>
-                        <td className="py-3 px-4 text-zinc-400">{assignments.filter(a => a.external_cert_id === cert.id).length || '—'}台</td>
-                        <td className="py-3 px-4">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cert.is_active ? 'bg-green-500/10 text-green-400' : 'bg-zinc-500/10 text-zinc-400'}`}>
-                            {cert.is_active ? '活跃' : '不活跃'}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4">
-                          <button className="text-xs text-blue-400 hover:text-blue-300">
-                            {(days <= 30 && days > 0) || days <= 0 ? '续期' : '查看'}
+                        <td className="px-5 py-4">
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setSelectedCertId(cert.id);
+                            }}
+                            className="text-xs font-medium text-teal-200 hover:text-teal-100"
+                          >
+                            查看抽屉
                           </button>
                         </td>
                       </tr>
-                      {isExpanded && (
-                        <tr>
-                          <td colSpan={8} className="bg-white/[0.02] px-6 py-4">
-                            <div className="grid grid-cols-2 gap-4 text-sm">
-                              <div>
-                                <span className="text-zinc-500">有效期起</span>
-                                <div className="text-white">{format(new Date(cert.not_before), 'yyyy-MM-dd HH:mm')}</div>
-                              </div>
-                              <div>
-                                <span className="text-zinc-500">有效期止</span>
-                                <div className="text-white">{format(new Date(cert.not_after), 'yyyy-MM-dd HH:mm')}</div>
-                              </div>
-                              <div>
-                                <span className="text-zinc-500">证书 ID</span>
-                                <div className="text-white font-mono text-xs">{cert.id}</div>
-                              </div>
-                              <div>
-                                <span className="text-zinc-500">自动续期</span>
-                                <div className="text-white">{cert.auto_renew ? '是' : '否'}</div>
-                              </div>
-                            </div>
-                            {assignments.length > 0 && (
-                              <div className="mt-4">
-                                <span className="text-zinc-500 text-xs">分发节点：</span>
-                                <div className="mt-2 space-y-1">
-                                  {assignments.map(a => (
-                                    <div key={a.id} className="flex items-center gap-2 text-xs">
-                                      <ShieldCheck size={12} className="text-green-400" />
-                                      <span className="text-white">{a.agent_name}</span>
-                                      <span className="text-zinc-500">{a.local_path}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
+
+        <aside className="glass-panel self-start p-5 xl:sticky xl:top-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="section-kicker">Certificate Drawer</div>
+              <h3 className="mt-2 text-lg font-semibold text-white">证书详情抽屉</h3>
+              <p className="mt-1 text-sm text-slate-400">查看 PEM、绑定节点和密钥托管策略。</p>
+            </div>
+            {selectedCert && <span className="metric-badge border-white/10 bg-white/5 text-slate-300">{selectedAssignments.length} 节点</span>}
+          </div>
+
+          {!selectedCertId ? (
+            <div className="mt-6 rounded-lg border border-white/8 bg-white/[0.03] px-4 py-8 text-center text-sm text-slate-500">从左侧选择一张证书查看详情。</div>
+          ) : isDetailLoading ? (
+            <div className="mt-6 space-y-3">
+              <div className="skeleton h-6 rounded" />
+              <div className="skeleton h-20 rounded" />
+              <div className="skeleton h-32 rounded" />
+            </div>
+          ) : detailError ? (
+            <div className="mt-6 rounded-lg border border-rose-300/15 bg-rose-500/10 p-4 text-sm text-rose-200">{detailError}</div>
+          ) : selectedCert ? (
+            <div className="mt-6 space-y-5">
+              <div>
+                <div className="text-xl font-semibold text-white">{selectedCert.subject_cn}</div>
+                <div className="mt-1 text-sm text-slate-400">{selectedCert.name}</div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <span className={`rounded-full border px-2 py-0.5 text-xs ${getCertHealth(getDaysRemaining(selectedCert.not_after), selectedCert.is_active).tone}`}>
+                    {getCertHealth(getDaysRemaining(selectedCert.not_after), selectedCert.is_active).label}
+                  </span>
+                  <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-xs text-slate-300">
+                    {providerLabels[selectedCert.provider || 'manual'] || selectedCert.provider || '手动上传'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="rounded-lg border border-white/8 bg-white/[0.03] p-3">
+                  <div className="text-xs text-slate-500">到期时间</div>
+                  <div className="mt-2 text-white">{format(new Date(selectedCert.not_after), 'yyyy-MM-dd HH:mm')}</div>
+                </div>
+                <div className="rounded-lg border border-white/8 bg-white/[0.03] p-3">
+                  <div className="text-xs text-slate-500">更新于</div>
+                  <div className="mt-2 text-white">{formatDistanceToNow(new Date(selectedCert.updated_at), { addSuffix: true })}</div>
+                </div>
+                <div className="col-span-2 rounded-lg border border-white/8 bg-white/[0.03] p-3">
+                  <div className="text-xs text-slate-500">序列号</div>
+                  <div className="mt-2 break-all font-mono text-xs text-slate-200">{selectedCert.serial_hex}</div>
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-3 flex items-center gap-2 text-sm font-medium text-white">
+                  <ShieldCheck size={15} className="text-teal-200" />
+                  分发节点
+                </div>
+                {selectedAssignments.length === 0 ? (
+                  <div className="rounded-lg border border-white/8 bg-white/[0.03] px-4 py-6 text-sm text-slate-500">当前还没有节点绑定这张证书。</div>
+                ) : (
+                  <div className="space-y-2">
+                    {selectedAssignments.map((assignment) => (
+                      <div key={assignment.id} className="rounded-lg border border-white/8 bg-white/[0.03] p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="flex items-center gap-2 text-sm font-medium text-white">
+                              <span className={`h-2 w-2 rounded-full ${livenessTone[assignment.agent_liveness]}`} />
+                              {assignment.agent_name}
+                            </div>
+                            <div className="mt-1 break-all text-xs text-slate-500">{assignment.local_path}</div>
+                          </div>
+                          <div className="text-xs text-slate-500">{formatDistanceToNow(new Date(assignment.created_at), { addSuffix: true })}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-lg border border-emerald-300/15 bg-emerald-500/10 p-4">
+                <div className="text-sm font-medium text-emerald-200">私钥策略</div>
+                <p className="mt-2 text-sm leading-6 text-emerald-100/80">
+                  私钥由服务端使用 Fernet 加密托管，控制台只展示证书正文和链，不返回明文私钥。
+                </p>
+              </div>
+
+              <div>
+                <div className="mb-2 text-sm font-medium text-white">证书 PEM 预览</div>
+                <pre className="overflow-x-auto rounded-lg border border-white/8 bg-slate-950/80 p-4 text-xs leading-6 text-slate-300">
+                  {previewPem(selectedCert.cert_pem)}
+                </pre>
+              </div>
+
+              {selectedCert.chain_pem && (
+                <div>
+                  <div className="mb-2 text-sm font-medium text-white">证书链预览</div>
+                  <pre className="overflow-x-auto rounded-lg border border-white/8 bg-slate-950/80 p-4 text-xs leading-6 text-slate-300">
+                    {previewPem(selectedCert.chain_pem)}
+                  </pre>
+                </div>
+              )}
+            </div>
+          ) : null}
+        </aside>
       </div>
     </div>
   );

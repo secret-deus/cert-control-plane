@@ -26,6 +26,7 @@ services:
       - ./server/app:/app/app:ro
       - ./server/alembic:/app/alembic:ro
       - ./server/alembic.ini:/app/alembic.ini:ro
+      - ./server/frontend/dist:/app/frontend/dist:ro
     command: ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"]
     ports:
       - "8080:8000"    # Control API
