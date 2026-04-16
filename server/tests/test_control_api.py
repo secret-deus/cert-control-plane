@@ -178,7 +178,15 @@ class TestAgentsAPI:
         # list query
         list_result = MagicMock()
         list_result.scalars.return_value.all.return_value = agents
-        mock_db.execute.side_effect = [count_result, list_result]
+        # cert count query (for each agent)
+        cert_count_result = MagicMock()
+        cert_count_result.scalar_one.return_value = 0
+        # expiring count query (for each agent)
+        expiring_count_result = MagicMock()
+        expiring_count_result.scalar_one.return_value = 0
+        
+        mock_db.execute.side_effect = [count_result, list_result] + \
+            [cert_count_result, expiring_count_result] * 3
 
         from app.database import get_db
         client._transport.app.dependency_overrides[get_db] = lambda: mock_db
@@ -199,7 +207,12 @@ class TestAgentsAPI:
         count_result.scalar_one.return_value = 1
         list_result = MagicMock()
         list_result.scalars.return_value.all.return_value = active_agents
-        mock_db.execute.side_effect = [count_result, list_result]
+        # cert count and expiring count queries
+        cert_count_result = MagicMock()
+        cert_count_result.scalar_one.return_value = 0
+        expiring_count_result = MagicMock()
+        expiring_count_result.scalar_one.return_value = 0
+        mock_db.execute.side_effect = [count_result, list_result, cert_count_result, expiring_count_result]
 
         from app.database import get_db
         client._transport.app.dependency_overrides[get_db] = lambda: mock_db

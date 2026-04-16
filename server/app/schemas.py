@@ -39,6 +39,25 @@ class AgentRead(BaseModel):
     fingerprint: str | None
     last_seen: datetime | None
     created_at: datetime
+    # Enhanced fields for UI
+    liveness: str | None = None  # 'online' | 'delayed' | 'offline'
+    cert_count: int = 0
+    expiring_soon_count: int = 0
+
+
+class AgentCertDetail(BaseModel):
+    """Certificate detail for an agent."""
+    local_path: str
+    cert_name: str
+    subject_cn: str
+    not_after: datetime
+    days_remaining: int
+    urgency: str  # 'expired' | 'critical' | 'warning' | 'normal'
+
+
+class AgentDetailRead(AgentRead):
+    """Agent detail with certificate information."""
+    certs: list[AgentCertDetail] = []
 
 
 # ---------------------------------------------------------------------------
