@@ -1,72 +1,167 @@
 @import "tailwindcss";
 
 @theme {
-  --color-background-base: #0f1115;
-  --color-background-card: rgba(23, 27, 34, 0.7);
-  --color-text-primary: #e6edf3;
-  --color-text-secondary: #8c959f;
-  --color-accent-blue: #2f81f7;
-  --color-status-green: #3fb950;
-  --color-status-yellow: #d29922;
-  --color-status-red: #f85149;
-  --color-border-subtle: rgba(240, 246, 252, 0.1);
+  /* ── Vercel/Linear inspired dark palette ── */
+  --color-primary-50: #eff6ff;
+  --color-primary-100: #dbeafe;
+  --color-primary-500: #3b82f6;
+  --color-primary-600: #2563eb;
+  --color-primary-700: #1d4ed8;
+
+  /* Backgrounds – slightly warmer neutral instead of pure black */
+  --bg-primary: #09090b;
+  --bg-secondary: #111113;
+  --bg-tertiary: #18181b;
+  --bg-card: #111113;
+  --bg-card-hover: #1c1c20;
+  --bg-overlay: rgba(0, 0, 0, 0.6);
+
+  /* Text – crisp hierarchy */
+  --text-primary: #fafafa;
+  --text-secondary: #a1a1aa;
+  --text-tertiary: #71717a;
+  --text-muted: #52525b;
+
+  /* Borders – barely visible, more like Vercel */
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-default: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.12);
+  --border-focus: rgba(59, 130, 246, 0.5);
+
+  /* Status colors – slightly more muted */
+  --status-online: #10b981;
+  --status-online-bg: rgba(16, 185, 129, 0.08);
+  --status-delayed: #eab308;
+  --status-delayed-bg: rgba(234, 179, 8, 0.08);
+  --status-offline: #ef4444;
+  --status-offline-bg: rgba(239, 68, 68, 0.08);
+  --status-warning: #f97316;
+  --status-warning-bg: rgba(249, 115, 22, 0.08);
+
+  /* Legacy compatibility */
+  --color-background-base: var(--bg-primary);
+  --color-background-card: var(--bg-card);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-accent-blue: var(--color-primary-500);
+  --color-status-green: var(--status-online);
+  --color-status-yellow: var(--status-delayed);
+  --color-status-red: var(--status-offline);
+  --color-border-subtle: var(--border-subtle);
 }
 
 @layer base {
   body {
-    background-color: var(--color-background-base);
-    color: var(--color-text-primary);
-    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     min-height: 100vh;
     margin: 0;
+    letter-spacing: -0.011em;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  ::selection {
+    background-color: rgba(59, 130, 246, 0.25);
+    color: var(--text-primary);
   }
 }
 
 @layer utilities {
+  /* Cards – flat, minimal, slightly elevated feel */
   .glass-panel {
-    background-color: var(--color-background-card);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid var(--color-border-subtle);
-    border-radius: 0.75rem; /* rounded-xl */
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    transition: border-color 0.15s ease;
+  }
+
+  .glass-panel:hover {
+    border-color: var(--border-default);
   }
 
   .text-glow {
     text-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
   }
-}
 
-/* Animations for Status Indicators */
-@keyframes pulse-green {
-  0% { box-shadow: 0 0 0 0 rgba(63, 185, 80, 0.7); }
-  70% { box-shadow: 0 0 0 6px rgba(63, 185, 80, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(63, 185, 80, 0); }
-}
+  /* Skeleton */
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
 
-@keyframes pulse-red {
-  0% { box-shadow: 0 0 0 0 rgba(248, 81, 73, 0.7); }
-  70% { box-shadow: 0 0 0 6px rgba(248, 81, 73, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(248, 81, 73, 0); }
-}
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      var(--bg-tertiary) 25%,
+      var(--bg-secondary) 50%,
+      var(--bg-tertiary) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    border-radius: 6px;
+  }
 
-.status-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  display: inline-block;
-}
+  /* Fade in */
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
 
-.status-dot.online {
-  background-color: var(--color-status-green);
-  animation: pulse-green 2s infinite;
-}
+  .animate-fade-in {
+    animation: fadeIn 0.2s ease-out;
+  }
 
-.status-dot.delayed {
-  background-color: var(--color-status-yellow);
-}
+  /* Status indicators */
+  .status-indicator {
+    @apply inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium;
+  }
 
-.status-dot.offline {
-  background-color: var(--color-status-red);
-  /* Optional: animation: pulse-red 2s infinite; */
+  .status-dot {
+    @apply w-1.5 h-1.5 rounded-full;
+  }
+
+  /* Buttons – cleaner, more like Linear */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-white text-zinc-900 rounded-lg text-sm font-medium transition-all duration-150 hover:bg-zinc-200 active:scale-[0.98];
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-sm font-medium transition-all duration-150 active:scale-[0.98];
+  }
+
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-sm font-medium transition-all duration-150;
+  }
+
+  /* Inputs – minimal, clean */
+  .input-field {
+    @apply w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-zinc-600 focus:ring-1 focus:ring-zinc-700 transition-all duration-150;
+  }
+
+  /* Table rows */
+  .table-row {
+    @apply border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors duration-150;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.15);
+  }
 }

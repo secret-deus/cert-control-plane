@@ -1,8 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Health Check', () => {
-  test('should pass basic test', async ({ page }) => {
-    // Basic test to verify Playwright is working
+  test('should pass basic test', () => {
     expect(true).toBe(true);
   });
 

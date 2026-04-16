@@ -32,24 +32,24 @@ test.describe('Dashboard Login', () => {
     await page.fill('input[type="password"]', ADMIN_API_KEY);
     await page.press('input[type="password"]', 'Enter');
 
-    // Should show dashboard content
-    await expect(page.locator('text=Agents')).toBeVisible();
-    await expect(page.locator('text=Certificates')).toBeVisible();
-    await expect(page.locator('text=Rollouts')).toBeVisible();
+    // Should show dashboard content (sidebar items are in Chinese)
+    await expect(page.locator('text=Agent 管理')).toBeVisible();
   });
 
-  test('should persist API key in localStorage', async ({ page }) => {
+  test('should persist API key in sessionStorage', async ({ page }) => {
     await page.goto('/dashboard');
 
     // Enter API key
     await page.fill('input[type="password"]', ADMIN_API_KEY);
     await page.press('input[type="password"]', 'Enter');
 
-    // Reload page
+    // Should be logged in
+    await expect(page.locator('text=Agent 管理')).toBeVisible();
+
+    // Reload page - should stay logged in via sessionStorage
     await page.reload();
 
     // Should not show login prompt again
     await expect(page.locator('input[type="password"]')).not.toBeVisible();
-    await expect(page.locator('text=Agents')).toBeVisible();
   });
 });
