@@ -1,5 +1,5 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
-import { FileKey2, RefreshCw, Search, ShieldCheck, UploadCloud, X } from 'lucide-react';
+import { FileKey2, RefreshCw, Search, ShieldCheck, Trash2, UploadCloud, X } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { apiFetch, apiPost, apiUpload } from '../lib/api';
 import FileUploadZone from './FileUploadZone';
@@ -121,6 +121,8 @@ export default function CertManagementPage() {
   const [statusFilter, setStatusFilter] = useState<FilterStatus>('all');
   const [search, setSearch] = useState('');
   const [showUpload, setShowUpload] = useState(false);
+  const [deletingCertId, setDeletingCertId] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const deferredSearch = useDeferredValue(search);
 
   const [uploadForm, setUploadForm] = useState({
@@ -277,6 +279,27 @@ export default function CertManagementPage() {
       setUploadError(error instanceof Error ? error.message : '上传失败');
     } finally {
       setArchiveUploading(false);
+    }
+  };
+
+  const handleDeleteCert = async () => {
+    if (!deletingCertId) return;
+
+    try {
+      await fetch(`/api/control/external-certs/${deletingCertId}`, {
+        method: 'DELETE',
+        headers: {
+          'X-Admin-API-Key': sessionStorage.getItem('admin_api_key') || '',
+        },
+      });
+      setShowDeleteConfirm(false);
+      setDeletingCertId(null);
+      if (selectedCertId === deletingCertId) {
+        setSelectedCertId(null);
+      }
+      await fetchData();
+    } catch (error) {
+      console.error('Failed to delete certificate:', error);
     }
   };
 
@@ -687,16 +710,29 @@ export default function CertManagementPage() {
                           </span>
                         </td>
                         <td className="px-5 py-4">
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setSelectedCertId(cert.id);
-                            }}
-                            className="text-xs font-medium text-teal-200 hover:text-teal-100"
-                          >
-                            查看抽屉
-                          </button>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setSelectedCertId(cert.id);
+                              }}
+                              className="text-xs font-medium text-teal-200 hover:text-teal-100"
+                            >
+                              查看抽屉
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setDeletingCertId(cert.id);
+                                setShowDeleteConfirm(true);
+                              }}
+                              className="text-xs font-medium text-rose-200 hover:text-rose-100"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -810,6 +846,36 @@ export default function CertManagementPage() {
           ) : null}
         </aside>
       </div>
+
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="glass-panel max-w-md p-6">
+            <h3 className="text-lg font-semibold text-white">确认删除证书</h3>
+            <p className="mt-2 text-sm text-slate-300">
+              此操作将删除证书记录及其所有关联的 Agent 分配，且不可恢复。确定要继续吗？
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  setDeletingCertId(null);
+                }}
+                className="btn-secondary"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteCert}
+                className="rounded-md border border-rose-300/20 bg-rose-500/10 px-4 py-2 text-sm font-medium text-rose-200 hover:bg-rose-500/20"
+              >
+                确认删除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

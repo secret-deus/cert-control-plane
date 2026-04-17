@@ -643,6 +643,58 @@ async def get_external_cert(cert_id: uuid.UUID, db: AsyncSession = Depends(get_d
     return cert
 
 
+@router.delete(
+    "/external-certs/{cert_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["control / external-certs"],
+    summary="删除外部证书",
+    description="""
+删除指定的外部证书记录。
+
+**注意**：
+- 如果证书已分配给 Agent，会同时删除关联记录
+- 此操作不可逆，请谨慎操作
+    """,
+)
+async def delete_external_cert(
+    cert_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    cert = await db.get(ExternalCertificate, cert_id)
+    if not cert:
+        raise HTTPException(status_code=404, detail="External certificate not found")
+
+    cert_name = cert.name
+    cert_cn = cert.subject_cn
+
+    assignments_result = await db.execute(
+        select(AgentCertAssignment).where(
+            AgentCertAssignment.external_cert_id == cert_id
+        )
+    )
+    assignments = assignments_result.scalars().all()
+    for assignment in assignments:
+        await db.delete(assignment)
+
+    await db.delete(cert)
+
+    await write_audit(
+        db,
+        action="external_cert_deleted",
+        entity_type="external_certificate",
+        entity_id=cert_id,
+        actor=_actor(request),
+        details={
+            "name": cert_name,
+            "subject_cn": cert_cn,
+            "assignments_deleted": len(assignments),
+        },
+        ip_address=_ip(request),
+    )
+    await db.commit()
+
+
 # ===========================================================================
 # Agent Cert Assignments
 # ===========================================================================
@@ -1010,7 +1062,7 @@ async def rollback_rollout_endpoint(
 **覆盖的操作：**
 `agent_created` / `agent_registered` / `agent_approved` / `agent_rejected` / `agent_deleted` /
 `cert_assigned` / `cert_assignment_deleted` /
-`external_cert_uploaded` / `external_cert_uploaded_from_archive` /
+`external_cert_uploaded` / `external_cert_uploaded_from_archive` / `external_cert_deleted` /
 `agent_fetch_certs` /
 `rollout_created` / `rollout_started` / `rollout_batch_started` /
 `rollout_paused` / `rollout_resumed` /
