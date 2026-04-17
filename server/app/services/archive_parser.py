@@ -1,6 +1,7 @@
 """Archive parser for certificate uploads (ZIP/TAR.GZ)."""
 
 import io
+import os
 import re
 import tarfile
 import zipfile
@@ -117,8 +118,18 @@ class ArchiveParser:
                             detail=f"Unsafe path in archive: {info.filename}",
                         )
                     name = info.filename
+                    base = os.path.basename(name)
+                    if base.startswith(".") or base.startswith("_"):
+                        continue
                     if name.lower().endswith((".pem", ".key")):
-                        content = zf.read(info.filename).decode("utf-8")
+                        raw_content = zf.read(info.filename)
+                        try:
+                            content = raw_content.decode("utf-8")
+                        except UnicodeDecodeError:
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"File {name} is not valid UTF-8 text",
+                            )
                         total_extracted += len(content.encode("utf-8"))
                         if total_extracted > MAX_EXTRACTED_SIZE:
                             raise HTTPException(
@@ -148,10 +159,20 @@ class ArchiveParser:
                             detail=f"Unsafe path in archive: {member.name}",
                         )
                     name = member.name
+                    base = os.path.basename(name)
+                    if base.startswith(".") or base.startswith("_"):
+                        continue
                     if name.lower().endswith((".pem", ".key")):
                         f = tf.extractfile(member)
                         if f:
-                            content = f.read().decode("utf-8")
+                            raw_content = f.read()
+                            try:
+                                content = raw_content.decode("utf-8")
+                            except UnicodeDecodeError:
+                                raise HTTPException(
+                                    status_code=400,
+                                    detail=f"File {name} is not valid UTF-8 text",
+                                )
                             total_extracted += len(content.encode("utf-8"))
                             if total_extracted > MAX_EXTRACTED_SIZE:
                                 raise HTTPException(
