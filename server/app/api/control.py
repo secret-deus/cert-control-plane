@@ -449,6 +449,16 @@ async def upload_external_cert(
 
     serial_hex = format(cert.serial_number, "x").lower()
 
+    existing = await db.execute(
+        select(ExternalCertificate).where(ExternalCertificate.serial_hex == serial_hex)
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(
+            status_code=400,
+            detail=f"Certificate with serial {serial_hex} already exists. "
+            f"Subject CN: {subject_cn}",
+        )
+
     key_encrypted = encrypt_key(body.key_pem.encode(), settings.ca_key_encryption_key)
 
     external_cert = ExternalCertificate(
@@ -526,6 +536,18 @@ async def upload_cert_archive(
     key_encrypted = encrypt_key(parsed.key_pem.encode(), settings.ca_key_encryption_key)
 
     cert_name = name or parsed.metadata.subject_cn
+
+    existing = await db.execute(
+        select(ExternalCertificate).where(
+            ExternalCertificate.serial_hex == parsed.metadata.serial_hex
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(
+            status_code=400,
+            detail=f"Certificate with serial {parsed.metadata.serial_hex} already exists. "
+            f"Subject CN: {parsed.metadata.subject_cn}",
+        )
 
     external_cert = ExternalCertificate(
         name=cert_name,
