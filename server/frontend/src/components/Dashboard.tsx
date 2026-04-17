@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Activity, History, RefreshCw, Server, ShieldCheck } from 'lucide-react';
-import { format, formatDistanceToNow } from 'date-fns';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, ShieldCheck, Wifi } from 'lucide-react';
+import { formatDistanceToNow } from 'date-fns';
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import { apiFetch } from '../lib/api';
-import KPICards from './KPICards';
 import AlertTable from './AlertTable';
-import AgentHealthCards from './AgentHealthCards';
 import CertExpiryTrend from './CertExpiryTrend';
 
 interface DashboardSummary {
@@ -33,52 +32,58 @@ interface CertAlertItem {
   agent_name?: string;
 }
 
-interface AuditEvent {
-  id: string;
-  action: string;
-  entity_type: string;
-  actor: string;
-  created_at: string;
+interface AlertBucket {
+  expired: number;
+  critical: number;
+  warning: number;
+  notice: number;
 }
 
-interface Rollout {
-  id: string;
-  name: string;
-  status: string;
-  current_batch: number;
-  total_batches: number;
-  updated_at: string;
+interface CertAlertResponse {
+  summary: {
+    external: AlertBucket;
+    agent: AlertBucket;
+  };
+  external_certs?: {
+    expired?: CertAlertItem[];
+    critical?: CertAlertItem[];
+    warning?: CertAlertItem[];
+  };
+  agent_certs?: {
+    expired?: CertAlertItem[];
+    critical?: CertAlertItem[];
+    warning?: CertAlertItem[];
+  };
 }
 
-const actionLabels: Record<string, string> = {
-  agent_created: '创建 Agent',
-  agent_approved: '审批 Agent',
-  agent_rejected: '拒绝 Agent',
-  agent_revoked: '撤销 Agent',
-  external_cert_uploaded: '上传证书',
-  cert_assigned: '分配证书',
-  cert_unassigned: '取消分配',
-  rollout_created: '创建 Rollout',
-  rollout_started: '启动 Rollout',
-  rollout_paused: '暂停 Rollout',
-  rollout_resumed: '恢复 Rollout',
-  rollout_completed: '完成 Rollout',
+const chartTooltipStyle = {
+  borderRadius: 12,
+  border: '1px solid rgba(255,255,255,0.08)',
+  background: 'rgba(15,18,24,0.98)',
+  boxShadow: '0 14px 30px rgba(0,0,0,0.35)',
 };
 
-const rolloutTone: Record<string, string> = {
-  pending: 'border-white/10 bg-white/5 text-slate-200',
-  running: 'border-teal-300/15 bg-teal-500/10 text-teal-100',
-  paused: 'border-amber-300/15 bg-amber-500/10 text-amber-200',
-  completed: 'border-emerald-300/15 bg-emerald-500/10 text-emerald-200',
-  failed: 'border-rose-300/15 bg-rose-500/10 text-rose-200',
+const agentTone: Record<AgentHealth['liveness'], string> = {
+  online: 'border-[rgba(115,191,105,0.24)] bg-[rgba(115,191,105,0.10)] text-[#9adf90]',
+  delayed: 'border-[rgba(242,204,12,0.24)] bg-[rgba(242,204,12,0.10)] text-[#f6d94b]',
+  offline: 'border-[rgba(242,73,92,0.24)] bg-[rgba(242,73,92,0.10)] text-[#ff8d9a]',
 };
+
+const agentLabel: Record<AgentHealth['liveness'], string> = {
+  online: '在线',
+  delayed: '延迟',
+  offline: '离线',
+};
+
+function ChartSkeleton() {
+  return <div className="skeleton h-[240px] rounded-[24px]" />;
+}
 
 export default function Dashboard() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [agents, setAgents] = useState<AgentHealth[]>([]);
   const [alerts, setAlerts] = useState<CertAlertItem[]>([]);
-  const [events, setEvents] = useState<AuditEvent[]>([]);
-  const [rollouts, setRollouts] = useState<Rollout[]>([]);
+  const [alertSummary, setAlertSummary] = useState<CertAlertResponse['summary'] | null>(null);
   const [trendData, setTrendData] = useState<{ date: string; count: number }[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -86,26 +91,16 @@ export default function Dashboard() {
     setIsLoading(true);
 
     try {
-      const [summaryData, healthData, alertsData, eventsData, expiryData, rolloutData] = await Promise.all([
+      const [summaryData, healthData, alertsData, expiryData] = await Promise.all([
         apiFetch<DashboardSummary>('/dashboard/summary'),
         apiFetch<AgentHealth[]>('/dashboard/agents-health'),
-        apiFetch<{
-          summary: {
-            external: { expired: number; critical: number; warning: number; notice: number };
-            agent: { expired: number; critical: number; warning: number; notice: number };
-          };
-          external_certs?: { expired?: CertAlertItem[]; critical?: CertAlertItem[]; warning?: CertAlertItem[] };
-          agent_certs?: { expired?: CertAlertItem[]; critical?: CertAlertItem[]; warning?: CertAlertItem[] };
-        }>('/dashboard/cert-alerts'),
-        apiFetch<{ items: AuditEvent[] }>('/audit?limit=10'),
+        apiFetch<CertAlertResponse>('/dashboard/cert-alerts'),
         apiFetch<{ id: string; subject_cn: string; not_after: string; days_remaining: number; urgency: string }[]>('/dashboard/certs-expiry?days=90'),
-        apiFetch<{ items: Rollout[] }>('/rollouts?limit=4'),
       ]);
 
       setSummary(summaryData);
       setAgents(healthData);
-      setEvents(eventsData.items || []);
-      setRollouts(rolloutData.items || []);
+      setAlertSummary(alertsData.summary);
 
       const allAlerts: CertAlertItem[] = [
         ...(alertsData.external_certs?.expired || []),
@@ -127,6 +122,7 @@ export default function Dashboard() {
           trendMap.set(key, (trendMap.get(key) || 0) + 1);
         }
       });
+
       setTrendData(
         Array.from(trendMap.entries())
           .map(([date, count]) => ({ date, count }))
@@ -148,225 +144,175 @@ export default function Dashboard() {
     return () => window.clearInterval(interval);
   }, [fetchData]);
 
-  const errorNodes = agents.filter((agent) => agent.liveness !== 'online').length;
   const onlineAgents = agents.filter((agent) => agent.liveness === 'online').length;
-  const totalAgents = agents.length;
-  const criticalAlerts = alerts.filter((alert) => alert.urgency === 'expired' || alert.urgency === 'critical').length;
-  const warningAlerts = alerts.filter((alert) => alert.urgency === 'warning').length;
-  const onlineRate = totalAgents > 0 ? Math.round((onlineAgents / totalAgents) * 100) : 0;
+  const delayedAgents = agents.filter((agent) => agent.liveness === 'delayed').length;
+  const offlineAgents = agents.filter((agent) => agent.liveness === 'offline').length;
+  const connectedAgents = agents.length;
+  const abnormalAgents = agents.filter((agent) => agent.liveness !== 'online').slice(0, 5);
   const pendingApprovals = summary?.agents.pending_approval || 0;
+  const runningRollouts = summary?.rollouts.running || 0;
+  const totalActiveCerts = summary?.certificates.total_active || 0;
 
-  const signalCards = [
+  const riskSummary = useMemo(() => {
+    const expired = (alertSummary?.external.expired || 0) + (alertSummary?.agent.expired || 0);
+    const critical = (alertSummary?.external.critical || 0) + (alertSummary?.agent.critical || 0);
+    const warning = (alertSummary?.external.warning || 0) + (alertSummary?.agent.warning || 0);
+    return {
+      expired,
+      critical,
+      warning,
+      within7Days: expired + critical,
+      within30Days: expired + critical + warning,
+    };
+  }, [alertSummary]);
+
+  const kpis = [
     {
-      label: '风险压强',
-      value: criticalAlerts + warningAlerts,
-      hint: criticalAlerts > 0 ? `${criticalAlerts} 项需要立即处理` : '暂无立即风险项',
-      tone: 'border-rose-300/15 bg-rose-500/10 text-rose-100',
+      label: 'Certificates',
+      title: '证书总数',
+      value: totalActiveCerts,
+      hint: `批次 ${runningRollouts}`,
       icon: ShieldCheck,
+      tone: 'text-white',
     },
     {
-      label: 'Agent 在线率',
-      value: `${onlineRate}%`,
-      hint: `${onlineAgents}/${Math.max(totalAgents, 1)} 节点在线`,
-      tone: 'border-emerald-300/15 bg-emerald-500/10 text-emerald-100',
-      icon: Server,
+      label: 'Expiring 7D',
+      title: '7天内过期',
+      value: riskSummary.within7Days,
+      hint: `${riskSummary.expired} 已过期`,
+      icon: AlertTriangle,
+      tone: 'text-white',
     },
     {
-      label: '发布队列',
-      value: summary?.rollouts.running || 0,
-      hint: pendingApprovals > 0 ? `${pendingApprovals} 个待审批 Agent` : '当前无准入阻塞',
-      tone: 'border-teal-300/15 bg-teal-500/10 text-teal-100',
-      icon: Activity,
+      label: 'Agents Online',
+      title: '在线Agent',
+      value: `${onlineAgents}/${connectedAgents}`,
+      hint: `异常 ${delayedAgents + offlineAgents}`,
+      icon: Wifi,
+      tone: 'text-white',
     },
   ];
 
+  const agentStatusChart = [
+    { name: '在线', value: onlineAgents, color: '#73bf69' },
+    { name: '延迟', value: delayedAgents, color: '#f2cc0c' },
+    { name: '离线', value: offlineAgents, color: '#f2495c' },
+  ].filter((item) => item.value > 0);
+
   return (
-    <div className="mx-auto max-w-[1480px] space-y-6 animate-fade-in">
-      <section className="glass-panel p-5 lg:p-6">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-          <div>
-            <div className="section-kicker">Overview</div>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white">监控聚合</h2>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
-              这里按风险、批次和舰队三个视角汇总当前状态，优先看异常，再往下钻取明细。
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <span className="metric-badge border-white/10 bg-white/[0.03] text-slate-300">证书 {summary?.certificates.total_active || 0}</span>
-              <span className="metric-badge border-rose-300/15 bg-rose-500/10 text-rose-200">高危 {criticalAlerts}</span>
-              <span className="metric-badge border-white/10 bg-white/[0.03] text-slate-300">批次 {summary?.rollouts.running || 0}</span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 xl:pt-1">
-            <button onClick={() => void fetchData()} className="btn-secondary flex items-center gap-1.5 text-[13px]" disabled={isLoading}>
-              <RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} />
-              刷新面板
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-5 grid gap-3 lg:grid-cols-3">
-          {signalCards.map(({ label, value, hint, tone, icon: Icon }) => (
-            <div key={label} className={`rounded-md border p-4 ${tone}`}>
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-xs uppercase tracking-[0.18em] text-white/60">{label}</div>
-                  <div className="mt-2 text-2xl font-semibold text-white">{value}</div>
-                  <div className="mt-2 text-sm text-white/70">{hint}</div>
-                </div>
-                <div className="rounded-md border border-white/10 bg-white/5 p-2.5 text-white">
-                  <Icon size={16} />
-                </div>
+    <div className="mx-auto max-w-[1520px] space-y-6 animate-fade-in">
+      <div className="grid gap-4 xl:grid-cols-3">
+        {kpis.map(({ label, title, value, hint, icon: Icon, tone }) => (
+          <section key={label} className="glass-panel rounded-[24px] px-5 py-5">
+            <div className="flex items-center gap-4">
+              <div className="flex h-14 w-14 items-center justify-center rounded-[18px] border border-white/6 bg-white/[0.03] text-white">
+                <Icon size={20} />
+              </div>
+              <div className={`min-w-0 ${tone}`}>
+                <div className="text-[13px] text-neutral-400">{title}</div>
+                <div className="mt-1 text-[2rem] font-semibold leading-none text-white">{value}</div>
+                <div className="mt-2 text-xs tracking-[0.12em] text-neutral-500 uppercase">{hint}</div>
               </div>
             </div>
-          ))}
-        </div>
-      </section>
+          </section>
+        ))}
+      </div>
 
-      <KPICards
-        totalCerts={summary?.certificates.total_active || 0}
-        criticalCount={criticalAlerts}
-        warningCount={warningAlerts}
-        errorNodes={errorNodes}
-        onlineAgents={onlineAgents}
-        totalAgents={totalAgents}
+      <CertExpiryTrend
+        data={trendData}
+        isLoading={isLoading}
+        totalCerts={totalActiveCerts}
+        within7Days={riskSummary.within7Days}
+        within30Days={riskSummary.within30Days}
+        pendingApprovals={pendingApprovals}
+        runningRollouts={runningRollouts}
       />
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.8fr)_360px]">
-        <div className="space-y-5">
-          <AlertTable
-            alerts={alerts.map((alert) => ({
-              id: alert.id,
-              domain: alert.subject_cn,
-              daysRemaining: alert.days_remaining,
-              urgency: alert.urgency,
-              notAfter: alert.not_after,
-              agent: alert.agent_name,
-              source: alert.source === 'agent' ? 'Agent 证书' : '外部证书',
-            }))}
-            isLoading={isLoading}
-          />
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.58fr)_390px]">
+        <AlertTable
+          alerts={alerts.map((alert) => ({
+            id: alert.id,
+            domain: alert.subject_cn,
+            daysRemaining: alert.days_remaining,
+            urgency: alert.urgency,
+            notAfter: alert.not_after,
+            agent: alert.agent_name,
+            source: alert.source === 'agent' ? 'Agent 证书' : '外部证书',
+          }))}
+          isLoading={isLoading}
+        />
 
-          <div className="grid gap-5 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
-            <CertExpiryTrend data={trendData} isLoading={isLoading} />
-
-            <div className="glass-panel p-5">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <div className="section-kicker">Rollout Watch</div>
-                  <h3 className="mt-2 text-lg font-semibold text-white">分发批次</h3>
-                  <p className="mt-1 text-sm text-slate-400">把运行中的灰度和近期批次直接拉到首页观察。</p>
-                </div>
-                <span className="metric-badge border-white/10 bg-white/5 text-slate-300">{rollouts.length} 条</span>
-              </div>
-
-              <div className="mt-5 space-y-3">
-                {rollouts.length === 0 ? (
-                  <div className="rounded-lg border border-white/6 bg-white/[0.02] px-4 py-6 text-center text-sm text-slate-500">
-                    当前没有分发批次。
-                  </div>
-                ) : (
-                  rollouts.map((rollout) => {
-                    const normalizedStatus = rollout.status.toLowerCase();
-                    return (
-                      <div key={rollout.id} className="rounded-lg border border-white/8 bg-white/[0.03] p-4">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <div className="font-medium text-white">{rollout.name}</div>
-                            <div className="mt-1 text-xs text-slate-500">更新于 {format(new Date(rollout.updated_at), 'MM-dd HH:mm')}</div>
-                          </div>
-                          <span className={`rounded-full border px-2 py-0.5 text-xs ${rolloutTone[normalizedStatus] || rolloutTone.pending}`}>
-                            {normalizedStatus}
-                          </span>
-                        </div>
-                        <div className="mt-4 flex items-center justify-between text-sm text-slate-400">
-                          <span>批次进度</span>
-                          <span className="text-white">{rollout.current_batch} / {rollout.total_batches}</span>
-                        </div>
-                        <div className="mt-2 h-1.5 rounded-full bg-white/5">
-                          <div
-                            className="h-full rounded-full bg-gradient-to-r from-teal-300 to-teal-500"
-                            style={{ width: `${Math.min(100, rollout.total_batches > 0 ? (rollout.current_batch / rollout.total_batches) * 100 : 0)}%` }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
+        <section className="glass-panel rounded-[24px] px-5 py-5 lg:px-6 lg:py-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="text-[13px] font-medium text-slate-400">Agent 健康状态</div>
+              <h3 className="mt-1 text-[1.35rem] font-semibold tracking-tight text-white">Fleet Health</h3>
             </div>
+            <span className="metric-badge border-white/8 bg-white/[0.03] text-neutral-300">总数 {connectedAgents}</span>
           </div>
 
-          <div className="glass-panel p-5">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="section-kicker">Audit Feed</div>
-                <div className="mt-2 flex items-center gap-2">
-                  <History size={18} className="text-slate-400" />
-                  <h3 className="text-lg font-semibold text-white">最近操作</h3>
-                </div>
-                <p className="mt-1 text-sm text-slate-400">关键动作保留在首页，方便快速回溯谁做了什么。</p>
-              </div>
-              <span className="metric-badge border-white/10 bg-white/5 text-slate-300">{events.length} 条</span>
-            </div>
-
-            {events.length === 0 ? (
-              <div className="py-8 text-center text-sm text-slate-500">暂无操作记录。</div>
+          <div className="ops-chart-frame relative mt-5 h-[220px] p-3">
+            {isLoading && !summary ? (
+              <ChartSkeleton />
+            ) : agentStatusChart.length === 0 ? (
+              <div className="flex h-full items-center justify-center text-sm text-slate-500">暂无 Agent 数据。</div>
             ) : (
-              <div className="mt-5 space-y-3">
-                {events.map((event) => (
-                  <div key={event.id} className="rounded-lg border border-white/8 bg-white/[0.03] p-4">
-                    <div className="flex items-start gap-3">
-                      <div className="mt-1 h-2.5 w-2.5 rounded-full bg-teal-300" />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm text-white">{actionLabels[event.action] || event.action}</div>
-                        <div className="mt-1 text-xs text-slate-500">操作者 {event.actor}</div>
-                      </div>
-                      <div className="shrink-0 text-xs text-slate-500">
-                        {formatDistanceToNow(new Date(event.created_at), { addSuffix: true })}
-                      </div>
-                    </div>
+              <>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={agentStatusChart} dataKey="value" nameKey="name" innerRadius={56} outerRadius={82} paddingAngle={3} stroke="rgba(15,23,42,0.65)" strokeWidth={2}>
+                      {agentStatusChart.map((item) => (
+                        <Cell key={item.name} fill={item.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip contentStyle={chartTooltipStyle} labelStyle={{ color: '#cbd5e1', fontSize: 12 }} itemStyle={{ color: '#f8fafc', fontSize: 12 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <div className="text-center">
+                    <div className="text-3xl font-semibold tracking-tight text-white">{onlineAgents}</div>
+                    <div className="mt-1 text-[11px] uppercase tracking-[0.18em] text-slate-500">在线节点</div>
                   </div>
-                ))}
-              </div>
+                </div>
+              </>
             )}
           </div>
-        </div>
 
-        <div className="space-y-5">
-          <AgentHealthCards
-            agents={agents.map((agent) => ({
-              id: agent.id,
-              name: agent.name,
-              liveness: agent.liveness,
-              lastSeen: agent.last_seen ? formatDistanceToNow(new Date(agent.last_seen), { addSuffix: true }) : null,
-              certExpiresAt: agent.cert_expires_at,
-            }))}
-            isLoading={isLoading}
-          />
-
-          <div className="glass-panel p-5">
-            <div className="section-kicker">Environment Snapshot</div>
-            <h3 className="mt-2 text-lg font-semibold text-white">运行摘要</h3>
-            <div className="mt-5 space-y-4 text-sm">
-              <div className="rounded-lg border border-white/8 bg-white/[0.03] p-4">
-                <div className="text-slate-400">在线节点</div>
-                <div className="mt-2 text-3xl font-semibold text-white">{onlineAgents}</div>
-                <div className="mt-2 text-xs text-slate-500">覆盖率 {onlineRate}%</div>
+          <div className="mt-4 grid grid-cols-3 gap-3">
+            {[
+              { label: '在线', value: onlineAgents, tone: 'border-white/8 bg-white/[0.02] text-white', accent: 'text-[#9adf90]' },
+              { label: '延迟', value: delayedAgents, tone: 'border-white/8 bg-white/[0.02] text-white', accent: 'text-[#ffbf8f]' },
+              { label: '离线', value: offlineAgents, tone: 'border-white/8 bg-white/[0.02] text-white', accent: 'text-[#ffbf8f]' },
+            ].map((item) => (
+              <div key={item.label} className={`rounded-[18px] border px-3 py-3 ${item.tone}`}>
+                <div className="text-[11px] uppercase tracking-[0.16em] text-white/65">{item.label}</div>
+                <div className={`mt-2 text-2xl font-semibold ${item.accent}`}>{item.value}</div>
               </div>
-              <div className="rounded-lg border border-white/8 bg-white/[0.03] p-4">
-                <div className="text-slate-400">待审批 Agent</div>
-                <div className="mt-2 text-3xl font-semibold text-white">{pendingApprovals}</div>
-                <div className="mt-2 text-xs text-slate-500">新节点接入需要审批通过才能加入分发。</div>
-              </div>
-              <div className="rounded-lg border border-white/8 bg-white/[0.03] p-4">
-                <div className="text-slate-400">30 天内到期</div>
-                <div className="mt-2 text-3xl font-semibold text-white">{summary?.certificates.expiring_soon || 0}</div>
-                <div className="mt-2 text-xs text-slate-500">结合风险队列决定本周续期窗口。</div>
-              </div>
-            </div>
+            ))}
           </div>
-        </div>
+
+          <div className="mt-5 space-y-2.5">
+            {abnormalAgents.length === 0 ? (
+              <div className="ops-chart-frame px-4 py-6 text-center text-sm text-slate-500">当前没有异常 Agent。</div>
+            ) : (
+              abnormalAgents.map((agent) => (
+                <div key={agent.id} className="rounded-[18px] border border-white/8 bg-white/[0.02] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium text-white">{agent.name}</div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {agent.last_seen ? formatDistanceToNow(new Date(agent.last_seen), { addSuffix: true }) : '从未连接'}
+                      </div>
+                    </div>
+                    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-xs ${agentTone[agent.liveness]}`}>
+                      {agentLabel[agent.liveness]}
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
       </div>
     </div>
   );

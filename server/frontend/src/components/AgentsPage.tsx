@@ -40,22 +40,22 @@ interface AgentDetail extends Agent {
 }
 
 const livenessConfig: Record<AgentLiveness, { label: string; color: string; bg: string; dot: string }> = {
-  online: { label: '在线', color: 'text-green-400', bg: 'bg-green-500/10', dot: 'bg-green-400' },
-  delayed: { label: '延迟', color: 'text-yellow-400', bg: 'bg-yellow-500/10', dot: 'bg-yellow-400' },
-  offline: { label: '离线', color: 'text-red-400', bg: 'bg-red-500/10', dot: 'bg-red-400' },
+  online: { label: '在线', color: 'text-[#9adf90]', bg: 'bg-[rgba(115,191,105,0.10)]', dot: 'bg-[#73bf69]' },
+  delayed: { label: '延迟', color: 'text-[#ffbf8f]', bg: 'bg-[rgba(255,153,92,0.10)]', dot: 'bg-[#ff995c]' },
+  offline: { label: '离线', color: 'text-[#ffbf8f]', bg: 'bg-[rgba(255,153,92,0.10)]', dot: 'bg-[#ff995c]' },
 };
 
 const statusConfig: Record<string, { label: string; color: string; bg: string }> = {
-  active: { label: '活跃', color: 'text-green-400', bg: 'bg-green-500/10' },
-  pending_approval: { label: '待审批', color: 'text-yellow-400', bg: 'bg-yellow-500/10' },
-  revoked: { label: '已撤销', color: 'text-red-400', bg: 'bg-red-500/10' },
+  active: { label: '活跃', color: 'text-[#9adf90]', bg: 'bg-[rgba(115,191,105,0.10)]' },
+  pending_approval: { label: '待审批', color: 'text-[#ffbf8f]', bg: 'bg-[rgba(255,153,92,0.10)]' },
+  revoked: { label: '已撤销', color: 'text-[#ffbf8f]', bg: 'bg-[rgba(255,153,92,0.10)]' },
 };
 
 const certUrgencyTone: Record<AgentCertDetail['urgency'], string> = {
-  expired: 'border-rose-300/15 bg-rose-500/10 text-rose-200',
-  critical: 'border-rose-300/15 bg-rose-500/10 text-rose-200',
-  warning: 'border-amber-300/15 bg-amber-500/10 text-amber-200',
-  normal: 'border-emerald-300/15 bg-emerald-500/10 text-emerald-200',
+  expired: 'border-[rgba(255,153,92,0.18)] bg-[rgba(255,153,92,0.10)] text-[#ffbf8f]',
+  critical: 'border-[rgba(255,153,92,0.18)] bg-[rgba(255,153,92,0.10)] text-[#ffbf8f]',
+  warning: 'border-white/8 bg-white/[0.03] text-neutral-300',
+  normal: 'border-[rgba(115,191,105,0.18)] bg-[rgba(115,191,105,0.10)] text-[#9adf90]',
 };
 
 function normalizeLiveness(value: string | null | undefined): AgentLiveness {
@@ -217,7 +217,7 @@ export default function AgentsPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <section className="glass-panel p-5 lg:p-6">
+      <section className="glass-panel rounded-[24px] p-5 lg:p-6">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div>
             <div className="section-kicker">Fleet</div>
@@ -226,11 +226,11 @@ export default function AgentsPage() {
               左侧处理舰队列表和待审批节点，右侧 dossier 查看单节点心跳、指纹和证书覆盖情况。
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
-              <span className="metric-badge border-white/10 bg-white/[0.03] text-slate-300">在线 {stats.online}</span>
-              <span className="metric-badge border-rose-300/15 bg-rose-500/10 text-rose-200">离线 {stats.offline}</span>
-              <span className="metric-badge border-amber-300/15 bg-amber-500/10 text-amber-200">待审批 {stats.pending}</span>
+              <span className="metric-badge border-white/8 bg-white/[0.03] text-neutral-300">在线 {stats.online}</span>
+              <span className="metric-badge border-[rgba(255,153,92,0.18)] bg-[rgba(255,153,92,0.10)] text-[#ffbf8f]">离线 {stats.offline}</span>
+              <span className="metric-badge border-white/8 bg-white/[0.03] text-neutral-300">待审批 {stats.pending}</span>
               {selectedAgent && (
-                <span className="metric-badge border-white/10 bg-white/[0.03] text-slate-300">当前 {selectedAgent.name}</span>
+                <span className="metric-badge border-white/8 bg-white/[0.03] text-neutral-300">当前 {selectedAgent.name}</span>
               )}
             </div>
           </div>
@@ -247,12 +247,12 @@ export default function AgentsPage() {
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {[
-            { label: '在线', value: stats.online, icon: CheckCircle2, tone: 'border-emerald-300/15 bg-emerald-500/10 text-emerald-100' },
-            { label: '离线', value: stats.offline, icon: XCircle, tone: 'border-rose-300/15 bg-rose-500/10 text-rose-100' },
-            { label: '待审批', value: stats.pending, icon: Clock, tone: 'border-amber-300/15 bg-amber-500/10 text-amber-100' },
-            { label: '延迟', value: stats.delayed, icon: AlertTriangle, tone: 'border-orange-300/15 bg-orange-500/10 text-orange-100' },
+            { label: '在线', value: stats.online, icon: CheckCircle2, tone: 'border-white/8 bg-white/[0.03] text-white' },
+            { label: '离线', value: stats.offline, icon: XCircle, tone: 'border-white/8 bg-white/[0.03] text-white' },
+            { label: '待审批', value: stats.pending, icon: Clock, tone: 'border-white/8 bg-white/[0.03] text-white' },
+            { label: '延迟', value: stats.delayed, icon: AlertTriangle, tone: 'border-white/8 bg-white/[0.03] text-white' },
           ].map(({ label, value, icon: Icon, tone }) => (
-            <div key={label} className={`rounded-lg border p-4 ${tone}`}>
+            <div key={label} className={`rounded-[20px] border p-4 ${tone}`}>
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-xs uppercase tracking-[0.18em] text-white/60">{label}</div>
@@ -268,18 +268,18 @@ export default function AgentsPage() {
       </section>
 
       {toast && (
-        <div className="rounded-md border border-emerald-300/15 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+        <div className="rounded-[18px] border border-[rgba(115,191,105,0.18)] bg-[rgba(115,191,105,0.10)] p-3 text-sm text-[#9adf90]">
           {toast}
         </div>
       )}
       {error && (
-        <div className="rounded-md border border-rose-300/15 bg-rose-500/10 p-3 text-sm text-rose-200">
+        <div className="rounded-[18px] border border-[rgba(255,153,92,0.18)] bg-[rgba(255,153,92,0.10)] p-3 text-sm text-[#ffbf8f]">
           {error}
         </div>
       )}
 
       {showCreate && (
-        <div className="glass-panel p-4">
+        <div className="glass-panel rounded-[24px] p-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
             <input
               className="input-field flex-1"
@@ -314,8 +314,8 @@ export default function AgentsPage() {
                 onClick={() => setStatusFilter(status)}
                 className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
                   statusFilter === status
-                    ? 'border-teal-300/20 bg-teal-500/10 text-teal-100'
-                    : 'border-white/10 bg-white/[0.03] text-slate-400 hover:text-white'
+                    ? 'border-[rgba(255,153,92,0.18)] bg-[rgba(255,153,92,0.10)] text-[#ffbf8f]'
+                    : 'border-white/8 bg-white/[0.03] text-neutral-400 hover:text-white'
                 }`}
               >
                 {status === 'all' ? '全部' : status === 'pending_approval' ? '待审批' : status === 'delayed' ? '延迟' : status === 'offline' ? '离线' : '在线'}
@@ -326,12 +326,12 @@ export default function AgentsPage() {
       </div>
 
       {pendingAgents.length > 0 && (
-        <div className="glass-panel p-5 border-yellow-500/20">
+        <div className="glass-panel rounded-[24px] p-5 border-white/8">
           <div className="section-kicker">Pending Queue</div>
           <h3 className="mt-2 text-lg font-semibold text-white">待审批 Agent</h3>
           <div className="mt-4 space-y-3">
             {pendingAgents.map((agent) => (
-              <div key={agent.id} className="rounded-lg border border-amber-300/15 bg-amber-500/10 p-4">
+              <div key={agent.id} className="rounded-[20px] border border-white/8 bg-white/[0.03] p-4">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div className="flex items-start gap-3">
                     <div className="rounded-md border border-white/10 bg-white/5 p-2 text-white">
@@ -354,11 +354,11 @@ export default function AgentsPage() {
       )}
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.9fr)_400px]">
-        <div className="glass-panel overflow-hidden">
+        <div className="glass-panel rounded-[24px] overflow-hidden">
           <div className="border-b border-white/6 px-5 py-4">
             <div className="section-kicker">Fleet Table</div>
             <h3 className="mt-2 text-lg font-semibold text-white">Agent 列表</h3>
-            <p className="mt-1 text-sm text-slate-400">表格负责扫描全局，右侧 dossier 负责看单节点细节。</p>
+            <p className="mt-1 text-sm text-neutral-500">表格负责扫描全局，右侧 dossier 负责看单节点细节。</p>
           </div>
 
           <div className="overflow-x-auto">
@@ -396,7 +396,7 @@ export default function AgentsPage() {
                     return (
                       <tr
                         key={agent.id}
-                        className={`table-row cursor-pointer ${isSelected ? 'bg-teal-500/[0.06]' : ''}`}
+                        className={`table-row cursor-pointer ${isSelected ? 'bg-white/[0.05]' : ''}`}
                         onClick={() => {
                           setLocalSelectedAgentId(agent.id);
                           navigate(`/agents/${agent.id}`);
@@ -404,7 +404,7 @@ export default function AgentsPage() {
                       >
                         <td className="px-5 py-4">
                           <div className="flex items-start gap-3">
-                            <div className="rounded-md border border-teal-300/12 bg-teal-500/10 p-2 text-teal-100">
+                            <div className="rounded-[14px] border border-white/8 bg-white/[0.03] p-2 text-white">
                               <Server size={16} />
                             </div>
                             <div>
@@ -428,7 +428,7 @@ export default function AgentsPage() {
                           {agent.last_seen ? formatDistanceToNow(new Date(agent.last_seen), { addSuffix: true }) : '从未连接'}
                         </td>
                         <td className="px-5 py-4">
-                          <button type="button" className="text-xs font-medium text-teal-200 hover:text-teal-100">查看 dossier</button>
+                          <button type="button" className="text-xs font-medium text-[#ffbf8f] hover:text-[#ffd0ad]">查看 dossier</button>
                         </td>
                       </tr>
                     );
@@ -439,14 +439,14 @@ export default function AgentsPage() {
           </div>
         </div>
 
-        <aside className="glass-panel self-start p-5 xl:sticky xl:top-6">
+        <aside className="glass-panel rounded-[24px] self-start p-5 xl:sticky xl:top-6">
           <div className="flex items-start justify-between gap-4">
             <div>
               <div className="section-kicker">Agent Dossier</div>
               <h3 className="mt-2 text-lg font-semibold text-white">节点详情</h3>
-              <p className="mt-1 text-sm text-slate-400">查看心跳、指纹、接入状态和挂载证书。</p>
+              <p className="mt-1 text-sm text-neutral-500">查看心跳、指纹、接入状态和挂载证书。</p>
             </div>
-            {selectedAgent && <span className="metric-badge border-white/10 bg-white/5 text-slate-300">{selectedAgent.certs.length} 证书</span>}
+            {selectedAgent && <span className="metric-badge border-white/8 bg-white/[0.03] text-neutral-300">{selectedAgent.certs.length} 证书</span>}
           </div>
 
           {!activeAgentId ? (
@@ -458,7 +458,7 @@ export default function AgentsPage() {
               <div className="skeleton h-32 rounded" />
             </div>
           ) : detailError ? (
-            <div className="mt-6 rounded-lg border border-rose-300/15 bg-rose-500/10 p-4 text-sm text-rose-200">{detailError}</div>
+            <div className="mt-6 rounded-[20px] border border-[rgba(255,153,92,0.18)] bg-[rgba(255,153,92,0.10)] p-4 text-sm text-[#ffbf8f]">{detailError}</div>
           ) : selectedAgent ? (
             <div className="mt-6 space-y-5">
               <div>

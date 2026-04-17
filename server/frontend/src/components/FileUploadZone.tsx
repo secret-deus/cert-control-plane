@@ -105,7 +105,7 @@ export default function FileUploadZone({
         onDragLeave={handleDragLeave}
         className={`relative rounded-lg border-2 border-dashed p-8 transition-colors ${
           isDragging
-            ? 'border-teal-300/30 bg-teal-500/5'
+            ? 'border-[rgba(255,153,92,0.24)] bg-[rgba(255,153,92,0.06)]'
             : 'border-white/8 bg-white/[0.02]'
         } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-white/15'}`}
       >
@@ -124,7 +124,7 @@ export default function FileUploadZone({
           <div className="mt-4 text-sm text-slate-300">
             {selectedFile ? (
               <div className="flex items-center justify-center gap-2">
-                <FileText size={14} className="text-teal-200" />
+                <FileText size={14} className="text-[#ffbf8f]" />
                 <span className="font-medium text-white">{selectedFile.name}</span>
               </div>
             ) : (
@@ -141,7 +141,7 @@ export default function FileUploadZone({
       </div>
 
       {error && (
-        <div className="flex items-center gap-2 rounded-lg border border-rose-300/15 bg-rose-500/10 p-3 text-sm text-rose-200">
+        <div className="flex items-center gap-2 rounded-[18px] border border-[rgba(255,153,92,0.18)] bg-[rgba(255,153,92,0.10)] p-3 text-sm text-[#ffbf8f]">
           <AlertCircle size={14} />
           {error}
         </div>

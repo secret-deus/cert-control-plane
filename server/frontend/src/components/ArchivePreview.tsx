@@ -26,18 +26,18 @@ export default function ArchivePreview({ data }: ArchivePreviewProps) {
   );
 
   const getStatusLabel = () => {
-    if (daysRemaining < 0) return { label: '已过期', tone: 'border-rose-300/15 bg-rose-500/10 text-rose-200' };
-    if (daysRemaining <= 7) return { label: '7天内到期', tone: 'border-rose-300/15 bg-rose-500/10 text-rose-200' };
-    if (daysRemaining <= 30) return { label: '30天内关注', tone: 'border-amber-300/15 bg-amber-500/10 text-amber-200' };
-    return { label: '健康', tone: 'border-emerald-300/15 bg-emerald-500/10 text-emerald-200' };
+    if (daysRemaining < 0) return { label: '已过期', tone: 'border-[rgba(255,153,92,0.18)] bg-[rgba(255,153,92,0.10)] text-[#ffbf8f]' };
+    if (daysRemaining <= 7) return { label: '7天内到期', tone: 'border-[rgba(255,153,92,0.18)] bg-[rgba(255,153,92,0.10)] text-[#ffbf8f]' };
+    if (daysRemaining <= 30) return { label: '30天内关注', tone: 'border-white/8 bg-white/[0.03] text-neutral-300' };
+    return { label: '健康', tone: 'border-[rgba(115,191,105,0.18)] bg-[rgba(115,191,105,0.10)] text-[#9adf90]' };
   };
 
   const status = getStatusLabel();
 
   return (
-    <div className="rounded-lg border border-teal-300/12 bg-teal-500/[0.03] p-4 space-y-4">
+    <div className="rounded-[20px] border border-white/8 bg-white/[0.02] p-4 space-y-4">
       <div className="flex items-start gap-3">
-        <div className="rounded-full border border-emerald-300/15 bg-emerald-500/10 p-2 text-emerald-200">
+        <div className="rounded-full border border-[rgba(115,191,105,0.18)] bg-[rgba(115,191,105,0.10)] p-2 text-[#9adf90]">
           <CheckCircle2 size={16} />
         </div>
         <div>
@@ -47,7 +47,7 @@ export default function ArchivePreview({ data }: ArchivePreviewProps) {
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <div className="rounded-lg border border-white/8 bg-white/[0.03] p-3">
+        <div className="rounded-[18px] border border-white/8 bg-white/[0.03] p-3">
           <div className="text-xs text-slate-500 flex items-center gap-1.5">
             <ShieldCheck size={12} />
             证书主体
@@ -55,7 +55,7 @@ export default function ArchivePreview({ data }: ArchivePreviewProps) {
           <div className="mt-2 text-sm font-medium text-white">{data.subject_cn}</div>
         </div>
 
-        <div className="rounded-lg border border-white/8 bg-white/[0.03] p-3">
+        <div className="rounded-[18px] border border-white/8 bg-white/[0.03] p-3">
           <div className="text-xs text-slate-500 flex items-center gap-1.5">
             <Calendar size={12} />
             到期时间
@@ -66,7 +66,7 @@ export default function ArchivePreview({ data }: ArchivePreviewProps) {
           </div>
         </div>
 
-        <div className="sm:col-span-2 rounded-lg border border-white/8 bg-white/[0.03] p-3">
+        <div className="sm:col-span-2 rounded-[18px] border border-white/8 bg-white/[0.03] p-3">
           <div className="text-xs text-slate-500 flex items-center gap-1.5">
             <Hash size={12} />
             序列号
