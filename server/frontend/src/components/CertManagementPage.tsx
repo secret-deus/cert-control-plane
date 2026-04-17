@@ -149,7 +149,7 @@ export default function CertManagementPage() {
     try {
       const [certsData, agentsData] = await Promise.all([
         apiFetch<PaginatedResponse<ExternalCert>>('/external-certs?limit=1000'),
-        apiFetch<PaginatedResponse<AgentSummary>>('/agents?limit=1000'),
+        apiFetch<PaginatedResponse<AgentSummary>>('/agents?limit=500'),
       ]);
 
       setCerts(certsData.items || []);

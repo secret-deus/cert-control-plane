@@ -87,7 +87,7 @@ export default function AgentsPage() {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const data = await apiFetch<PaginatedResponse<Agent>>('/agents?limit=1000');
+      const data = await apiFetch<PaginatedResponse<Agent>>('/agents?limit=500');
       setAgents(data.items || []);
     } catch (fetchError) {
       console.error('Failed to fetch agents:', fetchError);
