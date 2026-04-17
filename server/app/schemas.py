@@ -13,6 +13,7 @@ T = TypeVar("T")
 
 class PaginatedResponse(BaseModel, Generic[T]):
     """Paginated list wrapper."""
+
     items: list[T]
     total: int
     skip: int
@@ -47,6 +48,7 @@ class AgentRead(BaseModel):
 
 class AgentCertDetail(BaseModel):
     """Certificate detail for an agent."""
+
     local_path: str
     cert_name: str
     subject_cn: str
@@ -57,6 +59,7 @@ class AgentCertDetail(BaseModel):
 
 class AgentDetailRead(AgentRead):
     """Agent detail with certificate information."""
+
     certs: list[AgentCertDetail] = []
 
 
@@ -67,12 +70,14 @@ class AgentDetailRead(AgentRead):
 
 class AgentRegisterRequest(BaseModel):
     """Agent TOFU registration request: send name + public key fingerprint."""
+
     name: str = Field(..., min_length=1, max_length=255)
     fingerprint: str = Field(..., description="SHA256(DER public key) as hex")
 
 
 class AgentRegisterResponse(BaseModel):
     """Response to registration request."""
+
     status: str  # "pending" | "approved"
     agent_id: uuid.UUID
     agent_token: str | None = None  # Only set when status == "approved"
@@ -81,6 +86,7 @@ class AgentRegisterResponse(BaseModel):
 
 class AgentRegisterStatusResponse(BaseModel):
     """Response to registration status poll."""
+
     status: str  # "pending_approval" | "approved" | "rejected"
     agent_token: str | None = None  # Only set when approved
 
@@ -105,27 +111,31 @@ class HeartbeatResponse(BaseModel):
 
 class CertCheckItem(BaseModel):
     """One entry from agent's local cert table."""
+
     local_path: str
     current_not_after: datetime | None = None  # None if cert not yet deployed
 
 
 class CertUpdateItem(BaseModel):
     """Server response for one cert path."""
+
     local_path: str
     has_update: bool
     cert_pem: str | None = None
-    key_pem: str | None = None   # Decrypted plain-text private key
+    key_pem: str | None = None  # Decrypted plain-text private key
     chain_pem: str | None = None
     not_after: datetime | None = None
 
 
 class AgentFetchCertsRequest(BaseModel):
     """Batch cert check: agent sends its local cert table."""
+
     certs: list[CertCheckItem]
 
 
 class AgentFetchCertsResponse(BaseModel):
     """Batch cert update response."""
+
     updates: list[CertUpdateItem]
 
 
@@ -136,10 +146,11 @@ class AgentFetchCertsResponse(BaseModel):
 
 class ExternalCertCreate(BaseModel):
     """Upload external certificate"""
+
     name: str = Field(..., min_length=1, max_length=255)
     description: str | None = None
     cert_pem: str  # Certificate PEM
-    key_pem: str   # Private key PEM (will be encrypted)
+    key_pem: str  # Private key PEM (will be encrypted)
     chain_pem: str | None = None  # Certificate chain PEM
     provider: str | None = None  # e.g., "aliyun", "letsencrypt"
     external_id: str | None = None  # Provider's certificate ID
@@ -163,17 +174,40 @@ class ExternalCertSummary(BaseModel):
 
 class ExternalCertRead(ExternalCertSummary):
     """Full external cert detail"""
+
     cert_pem: str
     chain_pem: str | None
 
 
 class ExternalCertUploadResponse(BaseModel):
     """Response after uploading certificate"""
+
     id: uuid.UUID
     name: str
     subject_cn: str
     serial_hex: str
     not_after: datetime
+    message: str
+
+
+class FilesDetected(BaseModel):
+    """Files detected in archive"""
+
+    cert: str
+    key: str
+    chain: str | None = None
+
+
+class ExternalCertArchiveUploadResponse(BaseModel):
+    """Response after uploading certificate archive"""
+
+    id: uuid.UUID
+    name: str
+    subject_cn: str
+    serial_hex: str
+    not_after: datetime
+    files_detected: FilesDetected
+    san_domains: list[str]
     message: str
 
 
@@ -184,6 +218,7 @@ class ExternalCertUploadResponse(BaseModel):
 
 class AgentCertAssignRequest(BaseModel):
     """Assign an external cert to an agent for a specific local path."""
+
     external_cert_id: uuid.UUID
     local_path: str = Field(..., min_length=1, max_length=1024)
 
@@ -205,6 +240,7 @@ class AgentCertAssignmentRead(BaseModel):
 
 class CertSummary(BaseModel):
     """Lightweight cert representation for list endpoints."""
+
     model_config = {"from_attributes": True}
 
     id: uuid.UUID
@@ -222,6 +258,7 @@ class CertSummary(BaseModel):
 
 class CertRead(CertSummary):
     """Full cert detail including PEM (still no private key)."""
+
     cert_pem: str
     chain_pem: str | None
 

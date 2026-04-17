@@ -3,7 +3,17 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    status,
+    UploadFile,
+)
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -41,11 +51,14 @@ from app.schemas import (
     ExternalCertRead,
     ExternalCertSummary,
     ExternalCertUploadResponse,
+    ExternalCertArchiveUploadResponse,
+    FilesDetected,
     PaginatedResponse,
     RolloutCreate,
     RolloutDetail,
     RolloutRead,
 )
+from app.services.archive_parser import ArchiveParser
 from app.config import get_settings
 
 router = APIRouter(
@@ -122,18 +135,22 @@ async def list_agents(
     db: AsyncSession = Depends(get_db),
 ):
     from datetime import datetime, timezone, timedelta
-    
+
     base = select(Agent)
     if status_filter:
         base = base.where(Agent.status == status_filter)
-    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
-    result = await db.execute(base.offset(skip).limit(limit).order_by(Agent.created_at.desc()))
+    total = (
+        await db.execute(select(func.count()).select_from(base.subquery()))
+    ).scalar_one()
+    result = await db.execute(
+        base.offset(skip).limit(limit).order_by(Agent.created_at.desc())
+    )
     agents = list(result.scalars().all())
-    
+
     # Enhance agents with liveness and cert counts
     now = datetime.now(tz=timezone.utc)
     enhanced_agents = []
-    
+
     for agent in agents:
         # Calculate liveness
         liveness = "offline"  # Default to offline if never seen
@@ -144,36 +161,39 @@ async def list_agents(
             elif diff < 300:
                 liveness = "delayed"
             # else stays "offline"
-        
+
         # Count certificates
         cert_result = await db.execute(
-            select(func.count()).select_from(AgentCertAssignment).where(
-                AgentCertAssignment.agent_id == agent.id
-            )
+            select(func.count())
+            .select_from(AgentCertAssignment)
+            .where(AgentCertAssignment.agent_id == agent.id)
         )
         cert_count = cert_result.scalar_one()
-        
+
         # Count expiring soon (within 30 days)
         soon = now + timedelta(days=30)
         expiring_result = await db.execute(
             select(func.count())
             .select_from(AgentCertAssignment)
-            .join(ExternalCertificate, AgentCertAssignment.external_cert_id == ExternalCertificate.id)
+            .join(
+                ExternalCertificate,
+                AgentCertAssignment.external_cert_id == ExternalCertificate.id,
+            )
             .where(
                 AgentCertAssignment.agent_id == agent.id,
                 ExternalCertificate.not_after <= soon,
             )
         )
         expiring_soon_count = expiring_result.scalar_one()
-        
+
         # Create enhanced agent dict
         agent_dict = agent.__dict__.copy()
-        agent_dict.pop('_sa_instance_state', None)
-        agent_dict['liveness'] = liveness
-        agent_dict['cert_count'] = cert_count
-        agent_dict['expiring_soon_count'] = expiring_soon_count
+        agent_dict.pop("_sa_instance_state", None)
+        agent_dict["liveness"] = liveness
+        agent_dict["cert_count"] = cert_count
+        agent_dict["expiring_soon_count"] = expiring_soon_count
         enhanced_agents.append(agent_dict)
-    
+
     return PaginatedResponse(items=enhanced_agents, total=total, skip=skip, limit=limit)
 
 
@@ -204,11 +224,11 @@ async def get_agent_detail(
     db: AsyncSession = Depends(get_db),
 ):
     from datetime import datetime, timezone, timedelta
-    
+
     agent = await db.get(Agent, agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-    
+
     # Calculate liveness
     now = datetime.now(tz=timezone.utc)
     liveness = None
@@ -220,22 +240,25 @@ async def get_agent_detail(
             liveness = "delayed"
         else:
             liveness = "offline"
-    
+
     # Get certificate assignments with external cert details
     cert_result = await db.execute(
         select(AgentCertAssignment, ExternalCertificate)
-        .join(ExternalCertificate, AgentCertAssignment.external_cert_id == ExternalCertificate.id)
+        .join(
+            ExternalCertificate,
+            AgentCertAssignment.external_cert_id == ExternalCertificate.id,
+        )
         .where(AgentCertAssignment.agent_id == agent_id)
         .order_by(ExternalCertificate.not_after.asc())
     )
-    
+
     certs = []
     expiring_soon_count = 0
     soon = now + timedelta(days=30)
-    
+
     for assignment, ext_cert in cert_result.all():
         days_remaining = (ext_cert.not_after - now).days
-        
+
         # Determine urgency
         if days_remaining < 0:
             urgency = "expired"
@@ -245,27 +268,29 @@ async def get_agent_detail(
             urgency = "warning"
         else:
             urgency = "normal"
-        
+
         if days_remaining <= 30:
             expiring_soon_count += 1
-        
-        certs.append({
-            "local_path": assignment.local_path,
-            "cert_name": ext_cert.name,
-            "subject_cn": ext_cert.subject_cn,
-            "not_after": ext_cert.not_after,
-            "days_remaining": days_remaining,
-            "urgency": urgency,
-        })
-    
+
+        certs.append(
+            {
+                "local_path": assignment.local_path,
+                "cert_name": ext_cert.name,
+                "subject_cn": ext_cert.subject_cn,
+                "not_after": ext_cert.not_after,
+                "days_remaining": days_remaining,
+                "urgency": urgency,
+            }
+        )
+
     # Build enhanced agent response
     agent_dict = agent.__dict__.copy()
-    agent_dict.pop('_sa_instance_state', None)
-    agent_dict['liveness'] = liveness
-    agent_dict['cert_count'] = len(certs)
-    agent_dict['expiring_soon_count'] = expiring_soon_count
-    agent_dict['certs'] = certs
-    
+    agent_dict.pop("_sa_instance_state", None)
+    agent_dict["liveness"] = liveness
+    agent_dict["cert_count"] = len(certs)
+    agent_dict["expiring_soon_count"] = expiring_soon_count
+    agent_dict["certs"] = certs
+
     return agent_dict
 
 
@@ -412,25 +437,20 @@ async def upload_external_cert(
 
     settings = get_settings()
 
-    # Parse certificate
     try:
         cert = x509.load_pem_x509_certificate(body.cert_pem.encode())
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid certificate PEM: {e}")
 
-    # Extract CN
     cn_attrs = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
     if not cn_attrs:
         raise HTTPException(status_code=400, detail="Certificate missing Common Name")
     subject_cn = cn_attrs[0].value
 
-    # Extract serial
-    serial_hex = format(cert.serial_number, 'x').lower()
+    serial_hex = format(cert.serial_number, "x").lower()
 
-    # Encrypt private key
     key_encrypted = encrypt_key(body.key_pem.encode(), settings.ca_key_encryption_key)
 
-    # Create external certificate record
     external_cert = ExternalCertificate(
         name=body.name,
         description=body.description,
@@ -474,6 +494,93 @@ async def upload_external_cert(
     )
 
 
+@router.post(
+    "/external-certs/upload-archive",
+    response_model=ExternalCertArchiveUploadResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["control / external-certs"],
+    summary="上传证书压缩包",
+    description="""
+上传证书压缩包（.zip / .tar.gz / .tgz），自动解析并创建证书记录。
+
+- 压缩包必须包含一个 .key 文件和一个 .pem 文件
+- 自动识别证书和私钥，验证匹配关系
+- 私钥会被 Fernet 加密后存储
+- 支持包含证书链的 fullchain.pem
+    """,
+)
+async def upload_cert_archive(
+    archive: UploadFile = File(...),
+    name: str | None = Form(None),
+    provider: str | None = Form(None),
+    description: str | None = Form(None),
+    request: Request = None,
+    db: AsyncSession = Depends(get_db),
+):
+    settings = get_settings()
+
+    archive_bytes = await archive.read()
+
+    parsed = ArchiveParser.parse(archive_bytes, archive.filename or "archive.zip")
+
+    key_encrypted = encrypt_key(parsed.key_pem.encode(), settings.ca_key_encryption_key)
+
+    cert_name = name or parsed.metadata.subject_cn
+
+    external_cert = ExternalCertificate(
+        name=cert_name,
+        description=description,
+        cert_pem=parsed.cert_pem,
+        key_pem_encrypted=key_encrypted,
+        chain_pem=parsed.chain_pem,
+        subject_cn=parsed.metadata.subject_cn,
+        serial_hex=parsed.metadata.serial_hex,
+        not_before=parsed.metadata.not_before,
+        not_after=parsed.metadata.not_after,
+        provider=provider or "manual",
+        external_id=None,
+    )
+    db.add(external_cert)
+    await db.flush()
+
+    await write_audit(
+        db,
+        action="external_cert_uploaded_from_archive",
+        entity_type="external_certificate",
+        entity_id=external_cert.id,
+        actor=_actor(request),
+        details={
+            "name": cert_name,
+            "provider": provider or "manual",
+            "subject_cn": parsed.metadata.subject_cn,
+            "serial_hex": parsed.metadata.serial_hex,
+            "files": {
+                "cert": parsed.cert_filename,
+                "key": parsed.key_filename,
+                "chain": parsed.chain_filename,
+            },
+        },
+        ip_address=_ip(request),
+    )
+    await db.commit()
+    await db.refresh(external_cert)
+
+    return ExternalCertArchiveUploadResponse(
+        id=external_cert.id,
+        name=external_cert.name,
+        subject_cn=external_cert.subject_cn,
+        serial_hex=external_cert.serial_hex,
+        not_after=external_cert.not_after,
+        files_detected=FilesDetected(
+            cert=parsed.cert_filename,
+            key=parsed.key_filename,
+            chain=parsed.chain_filename,
+        ),
+        san_domains=parsed.metadata.san_domains,
+        message="Certificate uploaded from archive.",
+    )
+
+
 @router.get(
     "/external-certs",
     response_model=PaginatedResponse[ExternalCertSummary],
@@ -485,7 +592,9 @@ async def list_external_certs(
     limit: int = Query(100, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
 ):
-    total_result = await db.execute(select(func.count()).select_from(ExternalCertificate))
+    total_result = await db.execute(
+        select(func.count()).select_from(ExternalCertificate)
+    )
     total = total_result.scalar()
 
     result = await db.execute(
@@ -731,9 +840,15 @@ async def list_rollouts(
     base = select(Rollout)
     if status_filter:
         base = base.where(Rollout.status == status_filter)
-    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
-    result = await db.execute(base.offset(skip).limit(limit).order_by(Rollout.created_at.desc()))
-    return PaginatedResponse(items=list(result.scalars().all()), total=total, skip=skip, limit=limit)
+    total = (
+        await db.execute(select(func.count()).select_from(base.subquery()))
+    ).scalar_one()
+    result = await db.execute(
+        base.offset(skip).limit(limit).order_by(Rollout.created_at.desc())
+    )
+    return PaginatedResponse(
+        items=list(result.scalars().all()), total=total, skip=skip, limit=limit
+    )
 
 
 @router.get(
@@ -873,7 +988,7 @@ async def rollback_rollout_endpoint(
 **覆盖的操作：**
 `agent_created` / `agent_registered` / `agent_approved` / `agent_rejected` / `agent_deleted` /
 `cert_assigned` / `cert_assignment_deleted` /
-`external_cert_uploaded` /
+`external_cert_uploaded` / `external_cert_uploaded_from_archive` /
 `agent_fetch_certs` /
 `rollout_created` / `rollout_started` / `rollout_batch_started` /
 `rollout_paused` / `rollout_resumed` /
@@ -892,9 +1007,15 @@ async def list_audit_logs(
         base = base.where(AuditLog.entity_type == entity_type)
     if entity_id:
         base = base.where(AuditLog.entity_id == entity_id)
-    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
-    result = await db.execute(base.offset(skip).limit(limit).order_by(AuditLog.created_at.desc()))
-    return PaginatedResponse(items=list(result.scalars().all()), total=total, skip=skip, limit=limit)
+    total = (
+        await db.execute(select(func.count()).select_from(base.subquery()))
+    ).scalar_one()
+    result = await db.execute(
+        base.offset(skip).limit(limit).order_by(AuditLog.created_at.desc())
+    )
+    return PaginatedResponse(
+        items=list(result.scalars().all()), total=total, skip=skip, limit=limit
+    )
 
 
 # ===========================================================================

@@ -1,7 +1,9 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { FileKey2, RefreshCw, Search, ShieldCheck, UploadCloud, X } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
-import { apiFetch, apiPost } from '../lib/api';
+import { apiFetch, apiPost, apiUpload } from '../lib/api';
+import FileUploadZone from './FileUploadZone';
+import ArchivePreview from './ArchivePreview';
 
 interface PaginatedResponse<T> {
   items: T[];
@@ -51,7 +53,23 @@ interface CertAssignment extends RawAgentAssignment {
   agent_liveness: 'online' | 'delayed' | 'offline';
 }
 
+interface ArchivePreviewData {
+  id: string;
+  name: string;
+  subject_cn: string;
+  serial_hex: string;
+  not_after: string;
+  files_detected: {
+    cert: string;
+    key: string;
+    chain: string | null;
+  };
+  san_domains: string[];
+  message: string;
+}
+
 type FilterStatus = 'all' | 'healthy' | 'warning' | 'critical' | 'inactive';
+type UploadMode = 'pem' | 'archive';
 
 const providerLabels: Record<string, string> = {
   manual: '手动上传',
@@ -116,6 +134,15 @@ export default function CertManagementPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState(false);
+  const [uploadMode, setUploadMode] = useState<UploadMode>('pem');
+  const [archiveFile, setArchiveFile] = useState<File | null>(null);
+  const [archivePreview, setArchivePreview] = useState<ArchivePreviewData | null>(null);
+  const [archiveUploading, setArchiveUploading] = useState(false);
+  const [archiveForm, setArchiveForm] = useState({
+    name: '',
+    description: '',
+    provider: 'manual',
+  });
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -218,6 +245,60 @@ export default function CertManagementPage() {
       setUploading(false);
     }
   };
+
+  const handleArchiveFileSelect = useCallback((file: File) => {
+    setArchiveFile(file);
+    setArchivePreview(null);
+  }, []);
+
+  const handleArchiveUpload = async () => {
+    if (!archiveFile) return;
+
+    setArchiveUploading(true);
+    setUploadError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('archive', archiveFile);
+      if (archiveForm.name) formData.append('name', archiveForm.name);
+      if (archiveForm.description) formData.append('description', archiveForm.description);
+      if (archiveForm.provider) formData.append('provider', archiveForm.provider);
+
+      const result = await apiUpload<ArchivePreviewData>('/external-certs/upload-archive', formData);
+      setArchivePreview(result);
+      setArchiveFile(null);
+      setArchiveForm({
+        name: '',
+        description: '',
+        provider: 'manual',
+      });
+      await fetchData();
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : '上传失败');
+    } finally {
+      setArchiveUploading(false);
+    }
+  };
+
+  const resetUploadForm = useCallback(() => {
+    setUploadForm({
+      name: '',
+      description: '',
+      provider: 'manual',
+      cert_pem: '',
+      key_pem: '',
+      chain_pem: '',
+    });
+    setArchiveForm({
+      name: '',
+      description: '',
+      provider: 'manual',
+    });
+    setArchiveFile(null);
+    setArchivePreview(null);
+    setUploadError(null);
+    setUploadSuccess(false);
+  }, []);
 
   const filteredCerts = useMemo(() => {
     const keyword = deferredSearch.trim().toLowerCase();
@@ -365,7 +446,7 @@ export default function CertManagementPage() {
               <div className="section-kicker">Upload</div>
               <h3 className="mt-2 text-lg font-semibold text-white">录入新证书</h3>
             </div>
-            <button type="button" onClick={() => setShowUpload(false)} className="rounded-md border border-white/10 p-2 text-slate-400 hover:text-white">
+            <button type="button" onClick={() => { setShowUpload(false); resetUploadForm(); }} className="rounded-md border border-white/10 p-2 text-slate-400 hover:text-white">
               <X size={18} />
             </button>
           </div>
@@ -373,73 +454,161 @@ export default function CertManagementPage() {
           {uploadError && <div className="mb-4 rounded-md border border-rose-300/15 bg-rose-500/10 p-3 text-sm text-rose-200">{uploadError}</div>}
           {uploadSuccess && <div className="mb-4 rounded-md border border-emerald-300/15 bg-emerald-500/10 p-3 text-sm text-emerald-200">证书上传成功。</div>}
 
-          <form onSubmit={handleUpload} className="grid gap-4 lg:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-xs text-slate-400">显示名称</label>
-              <input
-                className="input-field"
-                value={uploadForm.name}
-                onChange={(event) => setUploadForm((current) => ({ ...current, name: event.target.value }))}
-                required
-                placeholder="api.example.com"
+          <div className="mb-4 flex gap-2">
+            <button
+              type="button"
+              onClick={() => setUploadMode('pem')}
+              className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+                uploadMode === 'pem'
+                  ? 'border-teal-300/20 bg-teal-500/10 text-teal-100'
+                  : 'border-white/10 bg-white/[0.03] text-slate-400 hover:text-white'
+              }`}
+            >
+              PEM 文本
+            </button>
+            <button
+              type="button"
+              onClick={() => setUploadMode('archive')}
+              className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+                uploadMode === 'archive'
+                  ? 'border-teal-300/20 bg-teal-500/10 text-teal-100'
+                  : 'border-white/10 bg-white/[0.03] text-slate-400 hover:text-white'
+              }`}
+            >
+              文件上传
+            </button>
+          </div>
+
+          {uploadMode === 'pem' ? (
+            <form onSubmit={handleUpload} className="grid gap-4 lg:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs text-slate-400">显示名称</label>
+                <input
+                  className="input-field"
+                  value={uploadForm.name}
+                  onChange={(event) => setUploadForm((current) => ({ ...current, name: event.target.value }))}
+                  required
+                  placeholder="api.example.com"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-slate-400">来源</label>
+                <select
+                  className="input-field"
+                  value={uploadForm.provider}
+                  onChange={(event) => setUploadForm((current) => ({ ...current, provider: event.target.value }))}
+                >
+                  <option value="manual">手动上传</option>
+                  <option value="aliyun">阿里云</option>
+                  <option value="letsencrypt">Let's Encrypt</option>
+                  <option value="digicert">DigiCert</option>
+                </select>
+              </div>
+              <div className="lg:col-span-2">
+                <label className="mb-1 block text-xs text-slate-400">备注</label>
+                <input
+                  className="input-field"
+                  value={uploadForm.description}
+                  onChange={(event) => setUploadForm((current) => ({ ...current, description: event.target.value }))}
+                  placeholder="例如：支付域名的生产证书"
+                />
+              </div>
+              <div className="lg:col-span-2">
+                <label className="mb-1 block text-xs text-slate-400">证书 PEM</label>
+                <textarea
+                  className="input-field h-28 font-mono text-xs"
+                  value={uploadForm.cert_pem}
+                  onChange={(event) => setUploadForm((current) => ({ ...current, cert_pem: event.target.value }))}
+                  required
+                  placeholder="-----BEGIN CERTIFICATE-----"
+                />
+              </div>
+              <div className="lg:col-span-2">
+                <label className="mb-1 block text-xs text-slate-400">私钥 PEM</label>
+                <textarea
+                  className="input-field h-28 font-mono text-xs"
+                  value={uploadForm.key_pem}
+                  onChange={(event) => setUploadForm((current) => ({ ...current, key_pem: event.target.value }))}
+                  required
+                  placeholder="-----BEGIN PRIVATE KEY-----"
+                />
+              </div>
+              <div className="lg:col-span-2">
+                <label className="mb-1 block text-xs text-slate-400">证书链 PEM</label>
+                <textarea
+                  className="input-field h-24 font-mono text-xs"
+                  value={uploadForm.chain_pem}
+                  onChange={(event) => setUploadForm((current) => ({ ...current, chain_pem: event.target.value }))}
+                  placeholder="-----BEGIN CERTIFICATE-----"
+                />
+              </div>
+              <div className="lg:col-span-2 flex justify-end gap-2">
+                <button type="button" onClick={() => { setShowUpload(false); resetUploadForm(); }} className="btn-secondary">取消</button>
+                <button type="submit" className="btn-primary" disabled={uploading}>{uploading ? '上传中...' : '提交证书'}</button>
+              </div>
+            </form>
+          ) : (
+            <div className="space-y-4">
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs text-slate-400">显示名称（可选）</label>
+                  <input
+                    className="input-field"
+                    value={archiveForm.name}
+                    onChange={(event) => setArchiveForm((current) => ({ ...current, name: event.target.value }))}
+                    placeholder="默认使用证书 CN"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-slate-400">来源</label>
+                  <select
+                    className="input-field"
+                    value={archiveForm.provider}
+                    onChange={(event) => setArchiveForm((current) => ({ ...current, provider: event.target.value }))}
+                  >
+                    <option value="manual">手动上传</option>
+                    <option value="aliyun">阿里云</option>
+                    <option value="letsencrypt">Let's Encrypt</option>
+                    <option value="digicert">DigiCert</option>
+                  </select>
+                </div>
+                <div className="lg:col-span-2">
+                  <label className="mb-1 block text-xs text-slate-400">备注</label>
+                  <input
+                    className="input-field"
+                    value={archiveForm.description}
+                    onChange={(event) => setArchiveForm((current) => ({ ...current, description: event.target.value }))}
+                    placeholder="例如：支付域名的生产证书"
+                  />
+                </div>
+              </div>
+
+              <FileUploadZone
+                onFileSelect={handleArchiveFileSelect}
+                disabled={archiveUploading}
               />
+
+              {archivePreview && <ArchivePreview data={archivePreview} />}
+
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setShowUpload(false); resetUploadForm(); }}
+                  className="btn-secondary"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={handleArchiveUpload}
+                  className="btn-primary"
+                  disabled={!archiveFile || archiveUploading}
+                >
+                  {archiveUploading ? '上传中...' : '上传压缩包'}
+                </button>
+              </div>
             </div>
-            <div>
-              <label className="mb-1 block text-xs text-slate-400">来源</label>
-              <select
-                className="input-field"
-                value={uploadForm.provider}
-                onChange={(event) => setUploadForm((current) => ({ ...current, provider: event.target.value }))}
-              >
-                <option value="manual">手动上传</option>
-                <option value="aliyun">阿里云</option>
-                <option value="letsencrypt">Let's Encrypt</option>
-                <option value="digicert">DigiCert</option>
-              </select>
-            </div>
-            <div className="lg:col-span-2">
-              <label className="mb-1 block text-xs text-slate-400">备注</label>
-              <input
-                className="input-field"
-                value={uploadForm.description}
-                onChange={(event) => setUploadForm((current) => ({ ...current, description: event.target.value }))}
-                placeholder="例如：支付域名的生产证书"
-              />
-            </div>
-            <div className="lg:col-span-2">
-              <label className="mb-1 block text-xs text-slate-400">证书 PEM</label>
-              <textarea
-                className="input-field h-28 font-mono text-xs"
-                value={uploadForm.cert_pem}
-                onChange={(event) => setUploadForm((current) => ({ ...current, cert_pem: event.target.value }))}
-                required
-                placeholder="-----BEGIN CERTIFICATE-----"
-              />
-            </div>
-            <div className="lg:col-span-2">
-              <label className="mb-1 block text-xs text-slate-400">私钥 PEM</label>
-              <textarea
-                className="input-field h-28 font-mono text-xs"
-                value={uploadForm.key_pem}
-                onChange={(event) => setUploadForm((current) => ({ ...current, key_pem: event.target.value }))}
-                required
-                placeholder="-----BEGIN PRIVATE KEY-----"
-              />
-            </div>
-            <div className="lg:col-span-2">
-              <label className="mb-1 block text-xs text-slate-400">证书链 PEM</label>
-              <textarea
-                className="input-field h-24 font-mono text-xs"
-                value={uploadForm.chain_pem}
-                onChange={(event) => setUploadForm((current) => ({ ...current, chain_pem: event.target.value }))}
-                placeholder="-----BEGIN CERTIFICATE-----"
-              />
-            </div>
-            <div className="lg:col-span-2 flex justify-end gap-2">
-              <button type="button" onClick={() => setShowUpload(false)} className="btn-secondary">取消</button>
-              <button type="submit" className="btn-primary" disabled={uploading}>{uploading ? '上传中...' : '提交证书'}</button>
-            </div>
-          </form>
+          )}
         </div>
       )}
 

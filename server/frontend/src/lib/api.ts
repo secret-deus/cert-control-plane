@@ -58,3 +58,38 @@ export function apiPost<T>(path: string, body?: unknown): Promise<T> {
 export function apiDelete<T>(path: string): Promise<T> {
   return apiFetch<T>(path, { method: 'DELETE' });
 }
+
+/** Upload helper for multipart/form-data */
+export async function apiUpload<T>(
+  path: string,
+  formData: FormData
+): Promise<T> {
+  const apiKey = getApiKey();
+  if (!apiKey) throw new Error('Not authenticated');
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: {
+      'X-Admin-API-Key': apiKey,
+    },
+    body: formData,
+  });
+
+  if (res.status === 401 || res.status === 403) {
+    sessionStorage.removeItem('admin_api_key');
+    window.location.reload();
+    throw new Error('Unauthorized');
+  }
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(body.detail || `API error ${res.status}`);
+  }
+
+  const bodyText = await res.text();
+  if (!bodyText) {
+    return undefined as T;
+  }
+
+  return JSON.parse(bodyText) as T;
+}
