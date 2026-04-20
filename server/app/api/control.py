@@ -449,37 +449,64 @@ async def upload_external_cert(
 
     serial_hex = format(cert.serial_number, "x").lower()
 
-    existing = await db.execute(
+    existing_by_serial = await db.execute(
         select(ExternalCertificate).where(ExternalCertificate.serial_hex == serial_hex)
     )
-    if existing.scalar_one_or_none():
+    if existing_by_serial.scalar_one_or_none():
         raise HTTPException(
             status_code=400,
             detail=f"Certificate with serial {serial_hex} already exists. "
             f"Subject CN: {subject_cn}",
         )
 
+    existing_by_cn = await db.execute(
+        select(ExternalCertificate).where(ExternalCertificate.subject_cn == subject_cn)
+    )
+    old_cert = existing_by_cn.scalar_one_or_none()
+
     key_encrypted = encrypt_key(body.key_pem.encode(), settings.ca_key_encryption_key)
 
-    external_cert = ExternalCertificate(
-        name=body.name,
-        description=body.description,
-        cert_pem=body.cert_pem,
-        key_pem_encrypted=key_encrypted,
-        chain_pem=body.chain_pem,
-        subject_cn=subject_cn,
-        serial_hex=serial_hex,
-        not_before=cert.not_valid_before_utc,
-        not_after=cert.not_valid_after_utc,
-        provider=body.provider,
-        external_id=body.external_id,
-    )
-    db.add(external_cert)
+    if old_cert:
+        old_cert.name = body.name
+        old_cert.description = body.description
+        old_cert.cert_pem = body.cert_pem
+        old_cert.key_pem_encrypted = key_encrypted
+        old_cert.chain_pem = body.chain_pem
+        old_cert.serial_hex = serial_hex
+        old_cert.not_before = cert.not_valid_before_utc
+        old_cert.not_after = cert.not_valid_after_utc
+        old_cert.provider = body.provider
+        old_cert.external_id = body.external_id
+        old_cert.updated_at = datetime.now(timezone.utc)
+        db.add(old_cert)
+        external_cert = old_cert
+        action = "external_cert_renewed"
+        message = f"Certificate renewed. {len(await _get_assignments_for_cert(db, old_cert.id))} agents will receive update."
+    else:
+        external_cert = ExternalCertificate(
+            name=body.name,
+            description=body.description,
+            cert_pem=body.cert_pem,
+            key_pem_encrypted=key_encrypted,
+            chain_pem=body.chain_pem,
+            subject_cn=subject_cn,
+            serial_hex=serial_hex,
+            not_before=cert.not_valid_before_utc,
+            not_after=cert.not_valid_after_utc,
+            provider=body.provider,
+            external_id=body.external_id,
+        )
+        db.add(external_cert)
+        action = "external_cert_uploaded"
+        message = (
+            "Certificate uploaded. Use /agents/{id}/assign-cert to assign to agents."
+        )
+
     await db.flush()
 
     await write_audit(
         db,
-        action="external_cert_uploaded",
+        action=action,
         entity_type="external_certificate",
         entity_id=external_cert.id,
         actor=_actor(request),
@@ -500,7 +527,7 @@ async def upload_external_cert(
         subject_cn=external_cert.subject_cn,
         serial_hex=external_cert.serial_hex,
         not_after=external_cert.not_after,
-        message="Certificate uploaded. Use /agents/{id}/assign-cert to assign to agents.",
+        message=message,
     )
 
 
@@ -537,37 +564,64 @@ async def upload_cert_archive(
 
     cert_name = name or parsed.metadata.subject_cn
 
-    existing = await db.execute(
+    existing_by_serial = await db.execute(
         select(ExternalCertificate).where(
             ExternalCertificate.serial_hex == parsed.metadata.serial_hex
         )
     )
-    if existing.scalar_one_or_none():
+    if existing_by_serial.scalar_one_or_none():
         raise HTTPException(
             status_code=400,
             detail=f"Certificate with serial {parsed.metadata.serial_hex} already exists. "
             f"Subject CN: {parsed.metadata.subject_cn}",
         )
 
-    external_cert = ExternalCertificate(
-        name=cert_name,
-        description=description,
-        cert_pem=parsed.cert_pem,
-        key_pem_encrypted=key_encrypted,
-        chain_pem=parsed.chain_pem,
-        subject_cn=parsed.metadata.subject_cn,
-        serial_hex=parsed.metadata.serial_hex,
-        not_before=parsed.metadata.not_before,
-        not_after=parsed.metadata.not_after,
-        provider=provider or "manual",
-        external_id=None,
+    existing_by_cn = await db.execute(
+        select(ExternalCertificate).where(
+            ExternalCertificate.subject_cn == parsed.metadata.subject_cn
+        )
     )
-    db.add(external_cert)
+    old_cert = existing_by_cn.scalar_one_or_none()
+
+    if old_cert:
+        old_cert.name = cert_name
+        old_cert.description = description
+        old_cert.cert_pem = parsed.cert_pem
+        old_cert.key_pem_encrypted = key_encrypted
+        old_cert.chain_pem = parsed.chain_pem
+        old_cert.serial_hex = parsed.metadata.serial_hex
+        old_cert.not_before = parsed.metadata.not_before
+        old_cert.not_after = parsed.metadata.not_after
+        old_cert.provider = provider or "manual"
+        old_cert.updated_at = datetime.now(timezone.utc)
+        db.add(old_cert)
+        external_cert = old_cert
+        action = "external_cert_renewed_from_archive"
+        assignment_count = len(await _get_assignments_for_cert(db, old_cert.id))
+        message = f"Certificate renewed from archive. {assignment_count} agents will receive update."
+    else:
+        external_cert = ExternalCertificate(
+            name=cert_name,
+            description=description,
+            cert_pem=parsed.cert_pem,
+            key_pem_encrypted=key_encrypted,
+            chain_pem=parsed.chain_pem,
+            subject_cn=parsed.metadata.subject_cn,
+            serial_hex=parsed.metadata.serial_hex,
+            not_before=parsed.metadata.not_before,
+            not_after=parsed.metadata.not_after,
+            provider=provider or "manual",
+            external_id=None,
+        )
+        db.add(external_cert)
+        action = "external_cert_uploaded_from_archive"
+        message = "Certificate uploaded from archive."
+
     await db.flush()
 
     await write_audit(
         db,
-        action="external_cert_uploaded_from_archive",
+        action=action,
         entity_type="external_certificate",
         entity_id=external_cert.id,
         actor=_actor(request),
@@ -599,7 +653,7 @@ async def upload_cert_archive(
             chain=parsed.chain_filename,
         ),
         san_domains=parsed.metadata.san_domains,
-        message="Certificate uploaded from archive.",
+        message=message,
     )
 
 
@@ -1109,3 +1163,14 @@ def _ip(request: Request) -> str | None:
     if forwarded:
         return forwarded.split(",")[0].strip()
     return request.client.host if request.client else None
+
+
+async def _get_assignments_for_cert(
+    db: AsyncSession, cert_id: uuid.UUID
+) -> list[AgentCertAssignment]:
+    result = await db.execute(
+        select(AgentCertAssignment).where(
+            AgentCertAssignment.external_cert_id == cert_id
+        )
+    )
+    return list(result.scalars().all())

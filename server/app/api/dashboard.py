@@ -79,38 +79,45 @@ async def get_summary(db: AsyncSession = Depends(get_db)):
 @router.get("/agents-health", summary="Agent liveness list", response_model=list[AgentHealth])
 async def get_agents_health(db: AsyncSession = Depends(get_db)):
     """List of all agents with their last_seen and current cert info for the health table."""
-    result = await db.execute(
-        select(Agent, Certificate)
-        .outerjoin(
-            Certificate, 
-            (Certificate.agent_id == Agent.id) & (Certificate.is_current.is_(True))
-        )
-        .order_by(Agent.name)
+    agents_result = await db.execute(
+        select(Agent).order_by(Agent.name)
     )
-    
-    health_list = []
+    agents = agents_result.scalars().all()
+
     now = datetime.now(tz=timezone.utc)
-    
-    for agent, cert in result.all():
-        # Determine liveness based on last_seen
+    health_list = []
+
+    for agent in agents:
         liveness = "offline"
         if agent.last_seen:
             diff = (now - agent.last_seen).total_seconds()
-            if diff < 90:  # 1.5x heartbeat interval (30s)
+            if diff < 90:
                 liveness = "online"
             elif diff < 300:
                 liveness = "delayed"
-                
+
+        cert_result = await db.execute(
+            select(Certificate)
+            .where(
+                Certificate.agent_id == agent.id,
+                Certificate.is_current.is_(True),
+                Certificate.revoked_at.is_(None),
+            )
+            .order_by(Certificate.not_after.asc())
+            .limit(1)
+        )
+        earliest_cert = cert_result.scalar_one_or_none()
+
         health_list.append({
             "id": agent.id,
             "name": agent.name,
             "status": agent.status,
             "liveness": liveness,
             "last_seen": agent.last_seen,
-            "cert_expires_at": cert.not_after if cert else None,
-            "cert_revoked_at": cert.revoked_at if cert else None,
+            "cert_expires_at": earliest_cert.not_after if earliest_cert else None,
+            "cert_revoked_at": earliest_cert.revoked_at if earliest_cert else None,
         })
-        
+
     return health_list
 
 

@@ -81,7 +81,7 @@ export default function KPICards({ totalCerts, criticalCount, warningCount, erro
             <div>
               <div className="section-kicker">{label}</div>
               <div className="mt-3 text-3xl font-semibold tracking-tight text-white">{value}</div>
-              <p className="mt-2 text-sm leading-6 text-slate-400">{hint}</p>
+              <p className="mt-2 text-sm leading-6 text-white/70">{hint}</p>
             </div>
             <div className={`rounded-md border p-3 ${iconTone}`}>
               <Icon size={18} />

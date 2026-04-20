@@ -28,7 +28,7 @@ export default function ArchivePreview({ data }: ArchivePreviewProps) {
   const getStatusLabel = () => {
     if (daysRemaining < 0) return { label: '已过期', tone: 'border-[rgba(255,153,92,0.18)] bg-[rgba(255,153,92,0.10)] text-[#ffbf8f]' };
     if (daysRemaining <= 7) return { label: '7天内到期', tone: 'border-[rgba(255,153,92,0.18)] bg-[rgba(255,153,92,0.10)] text-[#ffbf8f]' };
-    if (daysRemaining <= 30) return { label: '30天内关注', tone: 'border-white/8 bg-white/[0.03] text-neutral-300' };
+    if (daysRemaining <= 30) return { label: '30天内关注', tone: 'border-white/8 bg-white/[0.03] text-white/80' };
     return { label: '健康', tone: 'border-[rgba(115,191,105,0.18)] bg-[rgba(115,191,105,0.10)] text-[#9adf90]' };
   };
 
@@ -42,13 +42,13 @@ export default function ArchivePreview({ data }: ArchivePreviewProps) {
         </div>
         <div>
           <div className="text-sm font-medium text-white">解析成功</div>
-          <div className="mt-1 text-xs text-slate-400">{data.message}</div>
+          <div className="mt-1 text-xs text-white/70">{data.message}</div>
         </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="rounded-[18px] border border-white/8 bg-white/[0.03] p-3">
-          <div className="text-xs text-slate-500 flex items-center gap-1.5">
+          <div className="text-xs text-white/50 flex items-center gap-1.5">
             <ShieldCheck size={12} />
             证书主体
           </div>
@@ -56,7 +56,7 @@ export default function ArchivePreview({ data }: ArchivePreviewProps) {
         </div>
 
         <div className="rounded-[18px] border border-white/8 bg-white/[0.03] p-3">
-          <div className="text-xs text-slate-500 flex items-center gap-1.5">
+          <div className="text-xs text-white/50 flex items-center gap-1.5">
             <Calendar size={12} />
             到期时间
           </div>
@@ -67,17 +67,17 @@ export default function ArchivePreview({ data }: ArchivePreviewProps) {
         </div>
 
         <div className="sm:col-span-2 rounded-[18px] border border-white/8 bg-white/[0.03] p-3">
-          <div className="text-xs text-slate-500 flex items-center gap-1.5">
+          <div className="text-xs text-white/50 flex items-center gap-1.5">
             <Hash size={12} />
             序列号
           </div>
-          <div className="mt-2 break-all font-mono text-xs text-slate-200">{data.serial_hex}</div>
+          <div className="mt-2 break-all font-mono text-xs text-white/85">{data.serial_hex}</div>
         </div>
       </div>
 
       {data.san_domains.length > 0 && (
         <div>
-          <div className="text-xs text-slate-500 flex items-center gap-1.5 mb-2">
+          <div className="text-xs text-white/50 flex items-center gap-1.5 mb-2">
             <Globe size={12} />
             SAN 域名
           </div>
@@ -85,7 +85,7 @@ export default function ArchivePreview({ data }: ArchivePreviewProps) {
             {data.san_domains.map((domain) => (
               <span
                 key={domain}
-                className="rounded border border-white/8 bg-white/[0.03] px-2 py-1 text-xs text-slate-300"
+                className="rounded border border-white/8 bg-white/[0.03] px-2 py-1 text-xs text-white/80"
               >
                 {domain}
               </span>
@@ -95,20 +95,20 @@ export default function ArchivePreview({ data }: ArchivePreviewProps) {
       )}
 
       <div>
-        <div className="text-xs text-slate-500 mb-2">识别文件</div>
+        <div className="text-xs text-white/50 mb-2">识别文件</div>
         <div className="grid gap-2 sm:grid-cols-3">
           <div className="rounded border border-white/8 bg-white/[0.03] px-3 py-2 text-xs">
-            <span className="text-slate-400">证书：</span>
-            <span className="text-slate-200">{data.files_detected.cert}</span>
+            <span className="text-white/70">证书：</span>
+            <span className="text-white/85">{data.files_detected.cert}</span>
           </div>
           <div className="rounded border border-white/8 bg-white/[0.03] px-3 py-2 text-xs">
-            <span className="text-slate-400">私钥：</span>
-            <span className="text-slate-200">{data.files_detected.key}</span>
+            <span className="text-white/70">私钥：</span>
+            <span className="text-white/85">{data.files_detected.key}</span>
           </div>
           {data.files_detected.chain && (
             <div className="rounded border border-white/8 bg-white/[0.03] px-3 py-2 text-xs">
-              <span className="text-slate-400">证书链：</span>
-              <span className="text-slate-200">{data.files_detected.chain}</span>
+              <span className="text-white/70">证书链：</span>
+              <span className="text-white/85">{data.files_detected.chain}</span>
             </div>
           )}
         </div>

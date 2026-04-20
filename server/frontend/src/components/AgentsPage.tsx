@@ -222,15 +222,15 @@ export default function AgentsPage() {
           <div>
             <div className="section-kicker">Fleet</div>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white">Agent 舰队</h2>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-white/50">
               左侧处理舰队列表和待审批节点，右侧 dossier 查看单节点心跳、指纹和证书覆盖情况。
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
-              <span className="metric-badge border-white/8 bg-white/[0.03] text-neutral-300">在线 {stats.online}</span>
+              <span className="metric-badge border-white/8 bg-white/[0.03] text-white/80">在线 {stats.online}</span>
               <span className="metric-badge border-[rgba(255,153,92,0.18)] bg-[rgba(255,153,92,0.10)] text-[#ffbf8f]">离线 {stats.offline}</span>
-              <span className="metric-badge border-white/8 bg-white/[0.03] text-neutral-300">待审批 {stats.pending}</span>
+              <span className="metric-badge border-white/8 bg-white/[0.03] text-white/80">待审批 {stats.pending}</span>
               {selectedAgent && (
-                <span className="metric-badge border-white/8 bg-white/[0.03] text-neutral-300">当前 {selectedAgent.name}</span>
+                <span className="metric-badge border-white/8 bg-white/[0.03] text-white/80">当前 {selectedAgent.name}</span>
               )}
             </div>
           </div>
@@ -298,7 +298,7 @@ export default function AgentsPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-1 flex-wrap items-center gap-3">
           <label className="relative min-w-[260px] flex-1 max-w-md">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/50" />
             <input
               className="input-field pl-9"
               placeholder="搜索 Agent 名称、指纹或 ID"
@@ -315,7 +315,7 @@ export default function AgentsPage() {
                 className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
                   statusFilter === status
                     ? 'border-[rgba(255,153,92,0.18)] bg-[rgba(255,153,92,0.10)] text-[#ffbf8f]'
-                    : 'border-white/8 bg-white/[0.03] text-neutral-400 hover:text-white'
+                    : 'border-white/8 bg-white/[0.03] text-white/70 hover:text-white'
                 }`}
               >
                 {status === 'all' ? '全部' : status === 'pending_approval' ? '待审批' : status === 'delayed' ? '延迟' : status === 'offline' ? '离线' : '在线'}
@@ -339,7 +339,7 @@ export default function AgentsPage() {
                     </div>
                     <div>
                       <div className="text-sm font-medium text-white">{agent.name}</div>
-                      <div className="mt-1 text-xs text-slate-500">{agent.fingerprint ? `${agent.fingerprint.slice(0, 24)}...` : 'TOFU 自注册，等待审批'}</div>
+                      <div className="mt-1 text-xs text-white/50">{agent.fingerprint ? `${agent.fingerprint.slice(0, 24)}...` : 'TOFU 自注册，等待审批'}</div>
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -358,13 +358,13 @@ export default function AgentsPage() {
           <div className="border-b border-white/6 px-5 py-4">
             <div className="section-kicker">Fleet Table</div>
             <h3 className="mt-2 text-lg font-semibold text-white">Agent 列表</h3>
-            <p className="mt-1 text-sm text-neutral-500">表格负责扫描全局，右侧 dossier 负责看单节点细节。</p>
+            <p className="mt-1 text-sm text-white/50">表格负责扫描全局，右侧 dossier 负责看单节点细节。</p>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-white/6 text-xs text-slate-500">
+                <tr className="border-b border-white/6 text-xs text-white/50">
                   <th className="px-5 py-3 text-left font-medium">Agent</th>
                   <th className="px-4 py-3 text-left font-medium">状态</th>
                   <th className="px-4 py-3 text-left font-medium">证书覆盖</th>
@@ -384,7 +384,7 @@ export default function AgentsPage() {
                   ))
                 ) : listedAgents.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-5 py-14 text-center text-sm text-slate-500">没有匹配的 Agent。</td>
+                    <td colSpan={6} className="px-5 py-14 text-center text-sm text-white/50">没有匹配的 Agent。</td>
                   </tr>
                 ) : (
                   listedAgents.map((agent) => {
@@ -409,22 +409,22 @@ export default function AgentsPage() {
                             </div>
                             <div>
                               <div className="font-medium text-white">{agent.name}</div>
-                              <div className="mt-1 font-mono text-xs text-slate-500">{agent.fingerprint ? `${agent.fingerprint.slice(0, 18)}...` : agent.id.slice(0, 18)}</div>
+                              <div className="mt-1 font-mono text-xs text-white/50">{agent.fingerprint ? `${agent.fingerprint.slice(0, 18)}...` : agent.id.slice(0, 18)}</div>
                             </div>
                           </div>
                         </td>
                         <td className="px-4 py-4">
                           <div className="space-y-2">
                             <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${statusState.bg} ${statusState.color}`}>{statusState.label}</span>
-                            <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                            <div className="flex items-center gap-1.5 text-xs text-white/70">
                               <span className={`h-2 w-2 rounded-full ${livenessState.dot}`} />
                               {livenessState.label}
                             </div>
                           </div>
                         </td>
                         <td className="px-4 py-4 text-white">{agent.cert_count}</td>
-                        <td className="px-4 py-4 text-slate-300">{agent.expiring_soon_count}</td>
-                        <td className="px-4 py-4 text-xs text-slate-500">
+                        <td className="px-4 py-4 text-white/80">{agent.expiring_soon_count}</td>
+                        <td className="px-4 py-4 text-xs text-white/50">
                           {agent.last_seen ? formatDistanceToNow(new Date(agent.last_seen), { addSuffix: true }) : '从未连接'}
                         </td>
                         <td className="px-5 py-4">
@@ -444,13 +444,13 @@ export default function AgentsPage() {
             <div>
               <div className="section-kicker">Agent Dossier</div>
               <h3 className="mt-2 text-lg font-semibold text-white">节点详情</h3>
-              <p className="mt-1 text-sm text-neutral-500">查看心跳、指纹、接入状态和挂载证书。</p>
+              <p className="mt-1 text-sm text-white/50">查看心跳、指纹、接入状态和挂载证书。</p>
             </div>
-            {selectedAgent && <span className="metric-badge border-white/8 bg-white/[0.03] text-neutral-300">{selectedAgent.certs.length} 证书</span>}
+            {selectedAgent && <span className="metric-badge border-white/8 bg-white/[0.03] text-white/80">{selectedAgent.certs.length} 证书</span>}
           </div>
 
           {!activeAgentId ? (
-            <div className="mt-6 rounded-lg border border-white/8 bg-white/[0.03] px-4 py-8 text-center text-sm text-slate-500">从左侧选择一个 Agent 查看详情。</div>
+            <div className="mt-6 rounded-lg border border-white/8 bg-white/[0.03] px-4 py-8 text-center text-sm text-white/50">从左侧选择一个 Agent 查看详情。</div>
           ) : isDetailLoading ? (
             <div className="mt-6 space-y-3">
               <div className="skeleton h-6 rounded" />
@@ -463,7 +463,7 @@ export default function AgentsPage() {
             <div className="mt-6 space-y-5">
               <div>
                 <div className="text-xl font-semibold text-white">{selectedAgent.name}</div>
-                <div className="mt-1 text-sm text-slate-400">{selectedAgent.description || '未填写描述'}</div>
+                <div className="mt-1 text-sm text-white/70">{selectedAgent.description || '未填写描述'}</div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <span className={`rounded-full px-2 py-0.5 text-xs ${selectedStatus?.bg} ${selectedStatus?.color}`}>{selectedStatus?.label}</span>
                   <span className={`rounded-full px-2 py-0.5 text-xs ${livenessConfig[selectedLiveness].bg} ${livenessConfig[selectedLiveness].color}`}>
@@ -474,26 +474,26 @@ export default function AgentsPage() {
 
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div className="rounded-lg border border-white/8 bg-white/[0.03] p-3">
-                  <div className="text-xs text-slate-500">最后心跳</div>
+                  <div className="text-xs text-white/50">最后心跳</div>
                   <div className="mt-2 text-white">{selectedAgent.last_seen ? formatDistanceToNow(new Date(selectedAgent.last_seen), { addSuffix: true }) : '从未连接'}</div>
                 </div>
                 <div className="rounded-lg border border-white/8 bg-white/[0.03] p-3">
-                  <div className="text-xs text-slate-500">创建时间</div>
+                  <div className="text-xs text-white/50">创建时间</div>
                   <div className="mt-2 text-white">{format(new Date(selectedAgent.created_at), 'MM-dd HH:mm')}</div>
                 </div>
                 <div className="rounded-lg border border-white/8 bg-white/[0.03] p-3">
-                  <div className="text-xs text-slate-500">证书总数</div>
+                  <div className="text-xs text-white/50">证书总数</div>
                   <div className="mt-2 text-white">{selectedAgent.cert_count}</div>
                 </div>
                 <div className="rounded-lg border border-white/8 bg-white/[0.03] p-3">
-                  <div className="text-xs text-slate-500">30 天内到期</div>
+                  <div className="text-xs text-white/50">30 天内到期</div>
                   <div className="mt-2 text-white">{selectedAgent.expiring_soon_count}</div>
                 </div>
               </div>
 
               <div className="rounded-lg border border-white/8 bg-white/[0.03] p-4">
-                <div className="text-xs text-slate-500">指纹</div>
-                <div className="mt-2 break-all font-mono text-xs text-slate-300">{selectedAgent.fingerprint || '未上报公钥指纹，可能仍处于 TOFU 注册阶段。'}</div>
+                <div className="text-xs text-white/50">指纹</div>
+                <div className="mt-2 break-all font-mono text-xs text-white/80">{selectedAgent.fingerprint || '未上报公钥指纹，可能仍处于 TOFU 注册阶段。'}</div>
               </div>
 
               {selectedAgent.status === 'pending_approval' && (
@@ -506,7 +506,7 @@ export default function AgentsPage() {
               <div>
                 <div className="mb-3 text-sm font-medium text-white">挂载证书</div>
                 {selectedAgent.certs.length === 0 ? (
-                  <div className="rounded-lg border border-white/8 bg-white/[0.03] px-4 py-6 text-sm text-slate-500">该节点还没有挂载证书。</div>
+                  <div className="rounded-lg border border-white/8 bg-white/[0.03] px-4 py-6 text-sm text-white/50">该节点还没有挂载证书。</div>
                 ) : (
                   <div className="space-y-2">
                     {[...selectedAgent.certs]
@@ -516,11 +516,11 @@ export default function AgentsPage() {
                           <div className="flex items-start justify-between gap-3">
                             <div>
                               <div className="text-sm font-medium text-white">{cert.subject_cn}</div>
-                              <div className="mt-1 text-xs text-slate-500">{cert.local_path}</div>
+                              <div className="mt-1 text-xs text-white/50">{cert.local_path}</div>
                             </div>
                             <span className={`rounded-full border px-2 py-0.5 text-xs ${certUrgencyTone[cert.urgency]}`}>{cert.urgency}</span>
                           </div>
-                          <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
+                          <div className="mt-3 flex items-center justify-between text-xs text-white/70">
                             <span>{cert.cert_name}</span>
                             <span>{cert.days_remaining < 0 ? `已过期 ${Math.abs(cert.days_remaining)} 天` : `${cert.days_remaining} 天`}</span>
                           </div>

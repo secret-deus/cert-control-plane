@@ -47,9 +47,9 @@ export default function AgentHealthCards({ agents, isLoading }: AgentHealthCards
         <div>
           <div className="section-kicker">Fleet Health</div>
           <h3 className="mt-2 text-lg font-semibold text-white">Agent 健康矩阵</h3>
-          <p className="mt-1 text-sm text-slate-400">优先显示离线和心跳延迟的节点，方便先处理薄弱环节。</p>
+          <p className="mt-1 text-sm text-white/70">优先显示离线和心跳延迟的节点，方便先处理薄弱环节。</p>
         </div>
-        <div className="metric-badge border-white/10 bg-white/5 text-slate-300">总数 {agents.length}</div>
+        <div className="metric-badge border-white/10 bg-white/5 text-white/80">总数 {agents.length}</div>
       </div>
 
       <div className="mt-5 grid grid-cols-3 gap-3">
@@ -67,7 +67,7 @@ export default function AgentHealthCards({ agents, isLoading }: AgentHealthCards
 
       <div className="mt-5 space-y-2 max-h-[420px] overflow-y-auto">
         {agents.length === 0 ? (
-          <div className="py-10 text-center text-sm text-slate-500">暂无 Agent。</div>
+          <div className="py-10 text-center text-sm text-white/50">暂无 Agent。</div>
         ) : (
           sortedAgents.map((agent) => {
             const cfg = livenessConfig[agent.liveness];
@@ -75,17 +75,17 @@ export default function AgentHealthCards({ agents, isLoading }: AgentHealthCards
               <div key={agent.id} className="rounded-lg border border-white/8 bg-white/[0.03] p-4 transition-colors hover:border-white/12 hover:bg-white/[0.05]">
                 <div className="flex items-start gap-3">
                   <div className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${cfg.dot}`} />
-                  <Server size={16} className="mt-0.5 shrink-0 text-slate-500" />
+                  <Server size={16} className="mt-0.5 shrink-0 text-white/50" />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="truncate text-sm font-medium text-white">{agent.name}</div>
-                        <div className="mt-1 text-xs text-slate-500">{agent.lastSeen ? `${agent.lastSeen}` : '从未连接'}</div>
+                        <div className="mt-1 text-xs text-white/50">{agent.lastSeen ? `${agent.lastSeen}` : '从未连接'}</div>
                       </div>
                       <span className={`rounded-full px-2 py-0.5 text-xs ${cfg.bg} ${cfg.color}`}>{cfg.label}</span>
                     </div>
                     {agent.certExpiresAt && (
-                      <div className="mt-3 text-xs text-slate-400">
+                      <div className="mt-3 text-xs text-white/70">
                         最近证书到期日 {new Date(agent.certExpiresAt).toLocaleDateString('zh-CN')}
                       </div>
                     )}

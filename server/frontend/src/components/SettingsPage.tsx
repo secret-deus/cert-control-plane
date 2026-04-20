@@ -70,17 +70,17 @@ export default function SettingsPage() {
           <div>
             <div className="section-kicker">Settings</div>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white">系统设置</h2>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-white/50">
               当前页面展示控制平面的只读设置摘要。后端还没有完整的前台编辑接口，所以这里先把认证、安全、编排和网络规则整理成统一视图。
             </p>
           </div>
 
           <div className="grid gap-2 text-sm xl:min-w-[320px]">
             <div className="rounded-[20px] border border-white/8 bg-white/[0.03] px-4 py-3 text-white">
-              <div className="text-xs uppercase tracking-[0.18em] text-neutral-500">模式</div>
+              <div className="text-xs uppercase tracking-[0.18em] text-white/50">模式</div>
               <div className="mt-1 font-medium text-white">只读设置总览</div>
             </div>
-            <div className="rounded-[20px] border border-white/8 bg-white/[0.02] px-4 py-3 text-neutral-400">
+            <div className="rounded-[20px] border border-white/8 bg-white/[0.02] px-4 py-3 text-white/70">
               配置仍以服务端环境变量和部署脚本为准，不在页面直接修改。
             </div>
           </div>
@@ -96,7 +96,7 @@ export default function SettingsPage() {
               </div>
               <div>
                 <h3 className="text-lg font-semibold text-white">{title}</h3>
-                <p className="mt-1 text-sm leading-6 text-neutral-500">{description}</p>
+                <p className="mt-1 text-sm leading-6 text-white/50">{description}</p>
               </div>
             </div>
 
@@ -106,11 +106,11 @@ export default function SettingsPage() {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="text-sm font-medium text-white">{item.label}</div>
-                      <div className="mt-2 text-sm text-slate-300">{item.value}</div>
+                      <div className="mt-2 text-sm text-white/80">{item.value}</div>
                     </div>
-                    <span className="rounded-[12px] border border-white/8 bg-white/[0.03] px-2 py-0.5 text-xs text-neutral-500">只读</span>
+                    <span className="rounded-[12px] border border-white/8 bg-white/[0.03] px-2 py-0.5 text-xs text-white/50">只读</span>
                   </div>
-                  <p className="mt-3 text-sm leading-6 text-neutral-500">{item.note}</p>
+                  <p className="mt-3 text-sm leading-6 text-white/50">{item.note}</p>
                 </div>
               ))}
             </div>
@@ -126,7 +126,7 @@ export default function SettingsPage() {
           <div>
             <div className="section-kicker">Planned</div>
             <h3 className="mt-2 text-lg font-semibold text-white">后续可接入的设置能力</h3>
-            <p className="mt-1 text-sm leading-6 text-neutral-500">先保留位置，等后端接口和权限模型完善后再接入可编辑能力。</p>
+            <p className="mt-1 text-sm leading-6 text-white/50">先保留位置，等后端接口和权限模型完善后再接入可编辑能力。</p>
           </div>
         </div>
 
@@ -137,7 +137,7 @@ export default function SettingsPage() {
                 <ShieldCheck size={15} className="text-[#ffbf8f]" />
                 {card.title}
               </div>
-              <p className="mt-3 text-sm leading-6 text-neutral-500">{card.description}</p>
+              <p className="mt-3 text-sm leading-6 text-white/50">{card.description}</p>
             </div>
           ))}
         </div>

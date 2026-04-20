@@ -139,6 +139,26 @@ class AgentFetchCertsResponse(BaseModel):
     updates: list[CertUpdateItem]
 
 
+class ReportCertItem(BaseModel):
+    """One deployed cert entry reported by agent."""
+
+    local_path: str
+    cert_pem: str
+    chain_pem: str | None = None
+
+
+class AgentReportCertsRequest(BaseModel):
+    """Agent reports deployed certs after successful deployment."""
+
+    certs: list[ReportCertItem]
+
+
+class AgentReportCertsResponse(BaseModel):
+    """Response to report-certs."""
+
+    recorded: int
+
+
 # ---------------------------------------------------------------------------
 # External Certificate (uploaded from providers like 阿里云, Let's Encrypt)
 # ---------------------------------------------------------------------------

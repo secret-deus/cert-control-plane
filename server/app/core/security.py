@@ -18,6 +18,8 @@ def generate_agent_token() -> str:
 def verify_admin_key(api_key: str | None = Security(_api_key_header)) -> str:
     """FastAPI dependency – validates X-Admin-API-Key header."""
     settings = get_settings()
+    if settings.dev_mode:
+        return api_key or "dev-mode"
     if not api_key or not secrets.compare_digest(api_key, settings.admin_api_key):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

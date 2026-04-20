@@ -5,10 +5,10 @@ Authentication:
   - /register/status: no auth (poll by agent_id + fingerprint)
   - /heartbeat     : X-Agent-Token header
   - /fetch-certs   : X-Agent-Token header
+  - /report-certs  : X-Agent-Token header
 """
 
 import logging
-import secrets
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
@@ -36,6 +36,8 @@ from app.schemas import (
     AgentRegisterRequest,
     AgentRegisterResponse,
     AgentRegisterStatusResponse,
+    AgentReportCertsRequest,
+    AgentReportCertsResponse,
     CertUpdateItem,
     HeartbeatRequest,
     HeartbeatResponse,
@@ -506,3 +508,81 @@ async def fetch_certs(
     )
     await db.commit()
     return AgentFetchCertsResponse(updates=updates)
+
+
+# ---------------------------------------------------------------------------
+# POST /api/agent/report-certs  (deployment confirmation)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/report-certs",
+    response_model=AgentReportCertsResponse,
+    summary="上报已部署证书",
+    description="""
+Agent 部署证书后调用此接口，上报本地已写入的证书信息。
+服务端据此即时记录部署快照（Certificate 记录），无需等待下一轮 fetch-certs。
+
+需要 `X-Agent-Token` 认证。
+    """,
+)
+async def report_certs(
+    body: AgentReportCertsRequest,
+    request: Request,
+    x_agent_token: str | None = Header(None),
+    db: AsyncSession = Depends(get_db),
+):
+    settings = get_settings()
+
+    if settings.dev_mode and not x_agent_token:
+        result = await db.execute(
+            select(Agent).where(Agent.status == AgentStatus.ACTIVE).limit(1)
+        )
+        agent = result.scalar_one_or_none()
+        if not agent:
+            raise HTTPException(status_code=404, detail="No active agent found (dev mode)")
+    else:
+        agent = await _resolve_agent_by_token(x_agent_token, db)
+
+    recorded = 0
+    for item in body.certs:
+        assignment_result = await db.execute(
+            select(AgentCertAssignment).where(
+                AgentCertAssignment.agent_id == agent.id,
+                AgentCertAssignment.local_path == item.local_path,
+            )
+        )
+        assignment = assignment_result.scalar_one_or_none()
+        if assignment is None:
+            continue
+
+        ext_cert: ExternalCertificate | None = await db.get(
+            ExternalCertificate, assignment.external_cert_id
+        )
+        if ext_cert is None or not ext_cert.is_active:
+            continue
+
+        await record_deployed_cert(
+            db,
+            agent_id=agent.id,
+            local_path=item.local_path,
+            external_cert=ext_cert,
+        )
+        recorded += 1
+
+    rollout_item = await _get_active_rollout_item(db, agent_id=agent.id)
+    await _complete_rollout_item_if_ready(db, agent=agent, rollout_item=rollout_item)
+
+    if recorded > 0:
+        await write_audit(
+            db,
+            action="agent_report_certs",
+            entity_type="agent",
+            entity_id=agent.id,
+            actor=agent.name,
+            details={"reported": len(body.certs), "recorded": recorded},
+            ip_address=request.client.host if request.client else None,
+        )
+
+    await db.commit()
+    return AgentReportCertsResponse(recorded=recorded)

@@ -55,23 +55,23 @@ export default function AuthScreen({ onLogin }: AuthScreenProps) {
             </div>
             <div>
               <div className="text-lg font-semibold tracking-tight text-white">Cert Control Plane</div>
-              <div className="mt-1 text-sm text-neutral-500">控制平面访问入口</div>
+              <div className="mt-1 text-sm text-white/50">控制平面访问入口</div>
             </div>
           </div>
 
-          <div className="mt-6 rounded-[20px] border border-white/8 bg-white/[0.02] px-4 py-3 text-sm text-neutral-400">
+          <div className="mt-6 rounded-[20px] border border-white/8 bg-white/[0.02] px-4 py-3 text-sm text-white/70">
             使用 Admin API Key 登录后进入控制台。该入口只用于控制平面，Agent API 使用独立鉴权通道。
           </div>
 
           <div className="mt-6 overflow-hidden rounded-[20px] border border-white/8 bg-white/[0.02]">
-            <div className="border-b border-white/8 px-4 py-3 text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
+            <div className="border-b border-white/8 px-4 py-3 text-xs font-medium uppercase tracking-[0.18em] text-white/50">
               可用模块
             </div>
             <div>
               {moduleRows.map((module, index) => (
                 <div key={module.name} className={`px-4 py-4 ${index !== moduleRows.length - 1 ? 'border-b border-white/8' : ''}`}>
                   <div className="text-sm font-medium text-white">{module.name}</div>
-                  <div className="mt-1 text-sm text-slate-500">{module.note}</div>
+                  <div className="mt-1 text-sm text-white/50">{module.note}</div>
                 </div>
               ))}
             </div>
@@ -79,29 +79,29 @@ export default function AuthScreen({ onLogin }: AuthScreenProps) {
 
           <div className="mt-6 grid gap-4 md:grid-cols-2">
             <div className="rounded-[20px] border border-white/8 bg-white/[0.02] p-4">
-              <div className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">访问通道</div>
+              <div className="text-xs font-medium uppercase tracking-[0.18em] text-white/50">访问通道</div>
               <div className="mt-4 space-y-3 text-sm">
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-500">Control API</span>
+                  <span className="text-white/50">Control API</span>
                   <span className="text-white">8080</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-500">Agent API</span>
+                  <span className="text-white/50">Agent API</span>
                   <span className="text-white">8081</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-500">认证方式</span>
+                  <span className="text-white/50">认证方式</span>
                   <span className="text-white">API Key</span>
                 </div>
               </div>
             </div>
 
             <div className="rounded-[20px] border border-white/8 bg-white/[0.02] p-4">
-              <div className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">前置条件</div>
+              <div className="text-xs font-medium uppercase tracking-[0.18em] text-white/50">前置条件</div>
               <div className="mt-4 space-y-3 text-sm">
-                <div className="text-slate-400">1. 后端服务已启动</div>
-                <div className="text-slate-400">2. Admin API Key 已配置</div>
-                <div className="text-slate-400">3. 浏览器可访问当前容器端口</div>
+                <div className="text-white/70">1. 后端服务已启动</div>
+                <div className="text-white/70">2. Admin API Key 已配置</div>
+                <div className="text-white/70">3. 浏览器可访问当前容器端口</div>
               </div>
             </div>
           </div>
@@ -113,13 +113,13 @@ export default function AuthScreen({ onLogin }: AuthScreenProps) {
               <LockKeyhole size={16} className="text-[#ffbf8f]" />
               登录控制台
             </div>
-            <p className="mt-2 text-sm leading-6 text-neutral-500">输入 Admin API Key 验证当前会话。</p>
+            <p className="mt-2 text-sm leading-6 text-white/50">输入 Admin API Key 验证当前会话。</p>
 
             <form onSubmit={handleSubmit} className="mt-6 space-y-4">
               <div>
-                <label className="mb-2 block text-xs font-medium uppercase tracking-[0.18em] text-neutral-500">Admin API Key</label>
+                <label className="mb-2 block text-xs font-medium uppercase tracking-[0.18em] text-white/50">Admin API Key</label>
                 <div className="relative">
-                  <KeyRound className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                  <KeyRound className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
                   <input
                     type={showKey ? 'text' : 'password'}
                     value={key}
@@ -132,7 +132,7 @@ export default function AuthScreen({ onLogin }: AuthScreenProps) {
                   <button
                     type="button"
                     onClick={() => setShowKey((current) => !current)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 transition-colors hover:text-white"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50 transition-colors hover:text-white"
                   >
                     {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
@@ -161,7 +161,7 @@ export default function AuthScreen({ onLogin }: AuthScreenProps) {
             </form>
           </div>
 
-          <div className="mt-8 rounded-[20px] border border-white/8 bg-white/[0.02] px-4 py-3 text-sm text-neutral-500">
+          <div className="mt-8 rounded-[20px] border border-white/8 bg-white/[0.02] px-4 py-3 text-sm text-white/50">
             当前界面优先展示真实运行信息，避免额外装饰。若要进一步做开发态预览，可直接在容器挂载的 `dist` 基础上继续迭代。
           </div>
         </section>

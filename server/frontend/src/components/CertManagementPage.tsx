@@ -385,15 +385,15 @@ export default function CertManagementPage() {
           <div>
             <div className="section-kicker">Inventory</div>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white">证书资产</h2>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-white/50">
               资产列表、详情抽屉和上传入口集中在这一页，先处理临近到期项，再检查绑定节点和证书内容。
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
-              <span className="metric-badge border-white/8 bg-white/[0.03] text-neutral-300">总数 {certs.length}</span>
+              <span className="metric-badge border-white/8 bg-white/[0.03] text-white/80">总数 {certs.length}</span>
               <span className="metric-badge border-[rgba(255,153,92,0.18)] bg-[rgba(255,153,92,0.10)] text-[#ffbf8f]">7 天内 {counts.critical}</span>
-              <span className="metric-badge border-white/8 bg-white/[0.03] text-neutral-300">30 天内 {counts.warning}</span>
+              <span className="metric-badge border-white/8 bg-white/[0.03] text-white/80">30 天内 {counts.warning}</span>
               {selectedSummary && (
-                <span className="metric-badge border-white/8 bg-white/[0.03] text-neutral-300">
+                <span className="metric-badge border-white/8 bg-white/[0.03] text-white/80">
                   当前 {selectedSummary.subject_cn}
                 </span>
               )}
@@ -412,10 +412,10 @@ export default function CertManagementPage() {
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {[
-            { label: '证书总数', value: certs.length, tone: 'border-white/8 bg-white/[0.03] text-slate-100' },
+            { label: '证书总数', value: certs.length, tone: 'border-white/8 bg-white/[0.03] text-white/90' },
             { label: '7 天内到期', value: counts.critical, tone: 'border-[rgba(255,153,92,0.18)] bg-[rgba(255,153,92,0.10)] text-white' },
-            { label: '30 天内关注', value: counts.warning, tone: 'border-white/8 bg-white/[0.03] text-slate-100' },
-            { label: '证书来源', value: providerCount, tone: 'border-white/8 bg-white/[0.03] text-slate-100' },
+            { label: '30 天内关注', value: counts.warning, tone: 'border-white/8 bg-white/[0.03] text-white/90' },
+            { label: '证书来源', value: providerCount, tone: 'border-white/8 bg-white/[0.03] text-white/90' },
           ].map((item) => (
             <div key={item.label} className={`rounded-[20px] border p-4 ${item.tone}`}>
               <div className="text-xs uppercase tracking-[0.18em] text-white/60">{item.label}</div>
@@ -428,7 +428,7 @@ export default function CertManagementPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-1 flex-wrap items-center gap-3">
           <label className="relative min-w-[260px] flex-1 max-w-md">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/50" />
             <input
               className="input-field pl-9"
               placeholder="搜索域名、证书名或序列号"
@@ -451,7 +451,7 @@ export default function CertManagementPage() {
                 className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
                   statusFilter === status
                     ? 'border-[rgba(255,153,92,0.18)] bg-[rgba(255,153,92,0.10)] text-[#ffbf8f]'
-                    : 'border-white/8 bg-white/[0.03] text-neutral-400 hover:text-white'
+                    : 'border-white/8 bg-white/[0.03] text-white/70 hover:text-white'
                 }`}
               >
                 {label}
@@ -469,7 +469,7 @@ export default function CertManagementPage() {
               <div className="section-kicker">Upload</div>
               <h3 className="mt-2 text-lg font-semibold text-white">录入新证书</h3>
             </div>
-              <button type="button" onClick={() => { setShowUpload(false); resetUploadForm(); }} className="rounded-[16px] border border-white/8 p-2 text-slate-400 hover:text-white">
+              <button type="button" onClick={() => { setShowUpload(false); resetUploadForm(); }} className="rounded-[16px] border border-white/8 p-2 text-white/70 hover:text-white">
                 <X size={18} />
               </button>
             </div>
@@ -505,7 +505,7 @@ export default function CertManagementPage() {
           {uploadMode === 'pem' ? (
             <form onSubmit={handleUpload} className="grid gap-4 lg:grid-cols-2">
               <div>
-                <label className="mb-1 block text-xs text-slate-400">显示名称</label>
+                <label className="mb-1 block text-xs text-white/70">显示名称</label>
                 <input
                   className="input-field"
                   value={uploadForm.name}
@@ -537,7 +537,7 @@ export default function CertManagementPage() {
                 />
               </div>
               <div className="lg:col-span-2">
-                <label className="mb-1 block text-xs text-slate-400">证书 PEM</label>
+                <label className="mb-1 block text-xs text-white/70">证书 PEM</label>
                 <textarea
                   className="input-field h-28 font-mono text-xs"
                   value={uploadForm.cert_pem}
@@ -547,7 +547,7 @@ export default function CertManagementPage() {
                 />
               </div>
               <div className="lg:col-span-2">
-                <label className="mb-1 block text-xs text-slate-400">私钥 PEM</label>
+                <label className="mb-1 block text-xs text-white/70">私钥 PEM</label>
                 <textarea
                   className="input-field h-28 font-mono text-xs"
                   value={uploadForm.key_pem}
@@ -557,7 +557,7 @@ export default function CertManagementPage() {
                 />
               </div>
               <div className="lg:col-span-2">
-                <label className="mb-1 block text-xs text-slate-400">证书链 PEM</label>
+                <label className="mb-1 block text-xs text-white/70">证书链 PEM</label>
                 <textarea
                   className="input-field h-24 font-mono text-xs"
                   value={uploadForm.chain_pem}
@@ -574,7 +574,7 @@ export default function CertManagementPage() {
             <div className="space-y-4">
               <div className="grid gap-4 lg:grid-cols-2">
                 <div>
-                  <label className="mb-1 block text-xs text-slate-400">显示名称（可选）</label>
+                  <label className="mb-1 block text-xs text-white/70">显示名称（可选）</label>
                   <input
                     className="input-field"
                     value={archiveForm.name}
@@ -583,7 +583,7 @@ export default function CertManagementPage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs text-slate-400">来源</label>
+                <label className="mb-1 block text-xs text-white/70">来源</label>
                   <select
                     className="input-field"
                     value={archiveForm.provider}
@@ -596,7 +596,7 @@ export default function CertManagementPage() {
                   </select>
                 </div>
                 <div className="lg:col-span-2">
-                  <label className="mb-1 block text-xs text-slate-400">备注</label>
+                <label className="mb-1 block text-xs text-white/70">备注</label>
                   <input
                     className="input-field"
                     value={archiveForm.description}
@@ -640,13 +640,13 @@ export default function CertManagementPage() {
           <div className="border-b border-white/6 px-5 py-4">
             <div className="section-kicker">Inventory Table</div>
             <h3 className="mt-2 text-lg font-semibold text-white">证书资产列表</h3>
-            <p className="mt-1 text-sm text-slate-400">列表保留高频字段，详情放到右侧抽屉，不再把所有信息挤在一行里。</p>
+            <p className="mt-1 text-sm text-white/70">列表保留高频字段，详情放到右侧抽屉，不再把所有信息挤在一行里。</p>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-white/6 text-xs text-slate-500">
+                <tr className="border-b border-white/6 text-xs text-white/50">
                   <th className="px-5 py-3 text-left font-medium">证书主体</th>
                   <th className="px-4 py-3 text-left font-medium">来源</th>
                   <th className="px-4 py-3 text-left font-medium">到期时间</th>
@@ -669,7 +669,7 @@ export default function CertManagementPage() {
                   ))
                 ) : filteredCerts.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-5 py-14 text-center text-sm text-slate-500">没有匹配的证书。</td>
+                    <td colSpan={7} className="px-5 py-14 text-center text-sm text-white/50">没有匹配的证书。</td>
                   </tr>
                 ) : (
                   filteredCerts.map((cert) => {
@@ -691,19 +691,19 @@ export default function CertManagementPage() {
                             </div>
                             <div>
                               <div className="font-medium text-white">{cert.subject_cn}</div>
-                              <div className="mt-1 text-xs text-slate-500">{cert.name}</div>
+                              <div className="mt-1 text-xs text-white/50">{cert.name}</div>
                             </div>
                           </div>
                         </td>
-                        <td className="px-4 py-4 text-slate-400">{providerLabels[cert.provider || 'manual'] || cert.provider || '手动上传'}</td>
-                        <td className="px-4 py-4 text-slate-300">{format(new Date(cert.not_after), 'yyyy-MM-dd')}</td>
+                        <td className="px-4 py-4 text-white/70">{providerLabels[cert.provider || 'manual'] || cert.provider || '手动上传'}</td>
+                        <td className="px-4 py-4 text-white/80">{format(new Date(cert.not_after), 'yyyy-MM-dd')}</td>
                         <td className="px-4 py-4">
                           <span className={`rounded-full border px-2 py-0.5 text-xs ${health.tone}`}>{health.label}</span>
-                          <div className="mt-1 text-xs text-slate-500">
+                          <div className="mt-1 text-xs text-white/50">
                             {daysRemaining < 0 ? `已过期 ${Math.abs(daysRemaining)} 天` : `${daysRemaining} 天`}
                           </div>
                         </td>
-                        <td className="px-4 py-4 text-slate-400">{typeof bindingCount === 'number' ? `${bindingCount} 台` : '点选后计算'}</td>
+                        <td className="px-4 py-4 text-white/70">{typeof bindingCount === 'number' ? `${bindingCount} 台` : '点选后计算'}</td>
                         <td className="px-4 py-4">
                           <span className={`rounded-full border px-2 py-0.5 text-xs ${cert.is_active ? 'border-[rgba(115,191,105,0.18)] bg-[rgba(115,191,105,0.10)] text-[#9adf90]' : 'border-white/8 bg-white/[0.03] text-neutral-300'}`}>
                             {cert.is_active ? '活跃' : '未启用'}
@@ -748,13 +748,13 @@ export default function CertManagementPage() {
             <div>
               <div className="section-kicker">Certificate Drawer</div>
               <h3 className="mt-2 text-lg font-semibold text-white">证书详情抽屉</h3>
-              <p className="mt-1 text-sm text-neutral-500">查看 PEM、绑定节点和密钥托管策略。</p>
+              <p className="mt-1 text-sm text-white/50">查看 PEM、绑定节点和密钥托管策略。</p>
             </div>
-            {selectedCert && <span className="metric-badge border-white/8 bg-white/[0.03] text-neutral-300">{selectedAssignments.length} 节点</span>}
+            {selectedCert && <span className="metric-badge border-white/8 bg-white/[0.03] text-white/80">{selectedAssignments.length} 节点</span>}
           </div>
 
           {!selectedCertId ? (
-            <div className="mt-6 rounded-lg border border-white/8 bg-white/[0.03] px-4 py-8 text-center text-sm text-slate-500">从左侧选择一张证书查看详情。</div>
+            <div className="mt-6 rounded-lg border border-white/8 bg-white/[0.03] px-4 py-8 text-center text-sm text-white/50">从左侧选择一张证书查看详情。</div>
           ) : isDetailLoading ? (
             <div className="mt-6 space-y-3">
               <div className="skeleton h-6 rounded" />
@@ -767,12 +767,12 @@ export default function CertManagementPage() {
             <div className="mt-6 space-y-5">
               <div>
                 <div className="text-xl font-semibold text-white">{selectedCert.subject_cn}</div>
-                <div className="mt-1 text-sm text-slate-400">{selectedCert.name}</div>
+                <div className="mt-1 text-sm text-white/70">{selectedCert.name}</div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <span className={`rounded-full border px-2 py-0.5 text-xs ${getCertHealth(getDaysRemaining(selectedCert.not_after), selectedCert.is_active).tone}`}>
                     {getCertHealth(getDaysRemaining(selectedCert.not_after), selectedCert.is_active).label}
                   </span>
-                  <span className="rounded-full border border-white/8 bg-white/[0.03] px-2 py-0.5 text-xs text-neutral-300">
+                  <span className="rounded-full border border-white/8 bg-white/[0.03] px-2 py-0.5 text-xs text-white/80">
                     {providerLabels[selectedCert.provider || 'manual'] || selectedCert.provider || '手动上传'}
                   </span>
                 </div>
@@ -780,16 +780,16 @@ export default function CertManagementPage() {
 
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div className="rounded-[18px] border border-white/8 bg-white/[0.03] p-3">
-                  <div className="text-xs text-slate-500">到期时间</div>
+                  <div className="text-xs text-white/50">到期时间</div>
                   <div className="mt-2 text-white">{format(new Date(selectedCert.not_after), 'yyyy-MM-dd HH:mm')}</div>
                 </div>
                 <div className="rounded-[18px] border border-white/8 bg-white/[0.03] p-3">
-                  <div className="text-xs text-slate-500">更新于</div>
+                  <div className="text-xs text-white/50">更新于</div>
                   <div className="mt-2 text-white">{formatDistanceToNow(new Date(selectedCert.updated_at), { addSuffix: true })}</div>
                 </div>
                 <div className="col-span-2 rounded-[18px] border border-white/8 bg-white/[0.03] p-3">
-                  <div className="text-xs text-slate-500">序列号</div>
-                  <div className="mt-2 break-all font-mono text-xs text-slate-200">{selectedCert.serial_hex}</div>
+                  <div className="text-xs text-white/50">序列号</div>
+                  <div className="mt-2 break-all font-mono text-xs text-white/85">{selectedCert.serial_hex}</div>
                 </div>
               </div>
 
@@ -799,7 +799,7 @@ export default function CertManagementPage() {
                   分发节点
                 </div>
                 {selectedAssignments.length === 0 ? (
-                  <div className="rounded-[18px] border border-white/8 bg-white/[0.03] px-4 py-6 text-sm text-slate-500">当前还没有节点绑定这张证书。</div>
+                  <div className="rounded-[18px] border border-white/8 bg-white/[0.03] px-4 py-6 text-sm text-white/50">当前还没有节点绑定这张证书。</div>
                 ) : (
                   <div className="space-y-2">
                     {selectedAssignments.map((assignment) => (
@@ -810,9 +810,9 @@ export default function CertManagementPage() {
                               <span className={`h-2 w-2 rounded-full ${livenessTone[assignment.agent_liveness]}`} />
                               {assignment.agent_name}
                             </div>
-                            <div className="mt-1 break-all text-xs text-slate-500">{assignment.local_path}</div>
+                            <div className="mt-1 break-all text-xs text-white/50">{assignment.local_path}</div>
                           </div>
-                          <div className="text-xs text-slate-500">{formatDistanceToNow(new Date(assignment.created_at), { addSuffix: true })}</div>
+                          <div className="text-xs text-white/50">{formatDistanceToNow(new Date(assignment.created_at), { addSuffix: true })}</div>
                         </div>
                       </div>
                     ))}
@@ -822,14 +822,14 @@ export default function CertManagementPage() {
 
               <div className="rounded-[20px] border border-white/8 bg-white/[0.03] p-4">
                 <div className="text-sm font-medium text-white">私钥策略</div>
-                <p className="mt-2 text-sm leading-6 text-neutral-400">
+                <p className="mt-2 text-sm leading-6 text-white/70">
                   私钥由服务端使用 Fernet 加密托管，控制台只展示证书正文和链，不返回明文私钥。
                 </p>
               </div>
 
               <div>
                 <div className="mb-2 text-sm font-medium text-white">证书 PEM 预览</div>
-                <pre className="overflow-x-auto rounded-lg border border-white/8 bg-slate-950/80 p-4 text-xs leading-6 text-slate-300">
+                  <pre className="overflow-x-auto rounded-lg border border-white/8 bg-white/[0.02] p-4 text-xs leading-6 text-white/80">
                   {previewPem(selectedCert.cert_pem)}
                 </pre>
               </div>
@@ -837,7 +837,7 @@ export default function CertManagementPage() {
               {selectedCert.chain_pem && (
                 <div>
                   <div className="mb-2 text-sm font-medium text-white">证书链预览</div>
-                  <pre className="overflow-x-auto rounded-lg border border-white/8 bg-slate-950/80 p-4 text-xs leading-6 text-slate-300">
+                <pre className="overflow-x-auto rounded-lg border border-white/8 bg-white/[0.02] p-4 text-xs leading-6 text-white/80">
                     {previewPem(selectedCert.chain_pem)}
                   </pre>
                 </div>
@@ -851,7 +851,7 @@ export default function CertManagementPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="glass-panel max-w-md rounded-[24px] p-6">
             <h3 className="text-lg font-semibold text-white">确认删除证书</h3>
-            <p className="mt-2 text-sm text-slate-300">
+            <p className="mt-2 text-sm text-white/80">
               此操作将删除证书记录及其所有关联的 Agent 分配，且不可恢复。确定要继续吗？
             </p>
             <div className="mt-4 flex justify-end gap-2">

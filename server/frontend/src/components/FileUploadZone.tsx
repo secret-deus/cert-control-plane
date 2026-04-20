@@ -118,10 +118,10 @@ export default function FileUploadZone({
         />
 
         <div className="text-center">
-          <div className="mx-auto w-12 h-12 rounded-full border border-white/10 bg-white/[0.03] flex items-center justify-center text-slate-400">
+          <div className="mx-auto w-12 h-12 rounded-full border border-white/10 bg-white/[0.03] flex items-center justify-center text-white/70">
             <Upload size={20} />
           </div>
-          <div className="mt-4 text-sm text-slate-300">
+          <div className="mt-4 text-sm text-white/80">
             {selectedFile ? (
               <div className="flex items-center justify-center gap-2">
                 <FileText size={14} className="text-[#ffbf8f]" />
@@ -130,11 +130,11 @@ export default function FileUploadZone({
             ) : (
               <>
                 <span className="font-medium text-white">点击选择文件</span>
-                <span className="text-slate-400"> 或拖拽到此处</span>
+                <span className="text-white/70"> 或拖拽到此处</span>
               </>
             )}
           </div>
-          <p className="mt-2 text-xs text-slate-500">
+          <p className="mt-2 text-xs text-white/50">
             支持 .zip、.tar.gz、.tgz 格式，最大 {MAX_SIZE_MB}MB
           </p>
         </div>

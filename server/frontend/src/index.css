@@ -75,7 +75,7 @@
   .glass-panel {
     background: linear-gradient(180deg, rgba(25, 25, 25, 0.98) 0%, rgba(22, 22, 22, 0.98) 100%);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 22px;
+    border-radius: 12px;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
     transition: border-color 0.15s ease, background-color 0.15s ease;
   }
@@ -158,13 +158,13 @@
   }
 
   .ops-chart-frame {
-    @apply rounded-[22px] border bg-[#151515];
+    @apply rounded-[12px] border bg-[#151515];
     border-color: rgba(255, 255, 255, 0.05);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
   }
 
   .ops-kpi-card {
-    @apply relative overflow-hidden rounded-[22px] border px-4 py-4;
+    @apply relative overflow-hidden rounded-[12px] border px-4 py-4;
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.018) 0%, rgba(255, 255, 255, 0.01) 100%);
   }
 

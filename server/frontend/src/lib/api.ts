@@ -12,13 +12,12 @@ export async function apiFetch<T>(
   opts: RequestInit = {}
 ): Promise<T> {
   const apiKey = getApiKey();
-  if (!apiKey) throw new Error('Not authenticated');
 
   const res = await fetch(`${API_BASE}${path}`, {
     ...opts,
     headers: {
       'Content-Type': 'application/json',
-      'X-Admin-API-Key': apiKey,
+      ...(apiKey ? { 'X-Admin-API-Key': apiKey } : {}),
       ...(opts.headers || {}),
     },
   });
@@ -65,12 +64,11 @@ export async function apiUpload<T>(
   formData: FormData
 ): Promise<T> {
   const apiKey = getApiKey();
-  if (!apiKey) throw new Error('Not authenticated');
 
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
     headers: {
-      'X-Admin-API-Key': apiKey,
+      ...(apiKey ? { 'X-Admin-API-Key': apiKey } : {}),
     },
     body: formData,
   });

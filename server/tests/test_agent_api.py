@@ -546,3 +546,113 @@ class TestFetchCerts:
         assert resp.status_code == 200
         data = resp.json()
         assert data["updates"][0]["has_update"] is False
+
+
+class TestReportCerts:
+
+    @pytest.mark.asyncio
+    async def test_report_certs_records_deployment(self, client):
+        """Agent reports deployed certs → records Certificate snapshots."""
+        token = "agent-token"
+        agent = _make_agent(status=AgentStatus.ACTIVE, agent_token=token)
+
+        ext_cert = _make_ext_cert()
+        assignment = MagicMock(spec=AgentCertAssignment)
+        assignment.agent_id = agent.id
+        assignment.external_cert_id = ext_cert.id
+        assignment.local_path = "/etc/nginx/ssl/api.crt"
+
+        call_count = 0
+
+        def mock_execute(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = agent
+            elif call_count == 2:
+                result.scalar_one_or_none.return_value = assignment
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock(side_effect=mock_execute)
+        mock_db.get = AsyncMock(return_value=ext_cert)
+        mock_db.commit = AsyncMock()
+        mock_db.flush = AsyncMock()
+        mock_db.add = MagicMock()
+
+        from app.database import get_db
+        client._transport.app.dependency_overrides[get_db] = lambda: mock_db
+
+        with patch("app.api.agent.write_audit", new_callable=AsyncMock), \
+             patch("app.api.agent.record_deployed_cert", new_callable=AsyncMock) as mock_record, \
+             patch("app.api.agent._get_active_rollout_item", new_callable=AsyncMock, return_value=None), \
+             patch("app.api.agent._complete_rollout_item_if_ready", new_callable=AsyncMock):
+            resp = await client.post(
+                "/api/agent/report-certs",
+                json={"certs": [
+                    {
+                        "local_path": "/etc/nginx/ssl/api.crt",
+                        "cert_pem": "-----BEGIN CERTIFICATE-----\nMOCK\n-----END CERTIFICATE-----",
+                    }
+                ]},
+                headers={"X-Agent-Token": token},
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["recorded"] == 1
+        mock_record.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_report_certs_skips_unassigned_paths(self, client):
+        """Paths without assignments are skipped."""
+        token = "agent-token"
+        agent = _make_agent(status=AgentStatus.ACTIVE, agent_token=token)
+
+        call_count = 0
+
+        def mock_execute(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = agent
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock(side_effect=mock_execute)
+        mock_db.get = AsyncMock(return_value=None)
+        mock_db.commit = AsyncMock()
+
+        from app.database import get_db
+        client._transport.app.dependency_overrides[get_db] = lambda: mock_db
+
+        with patch("app.api.agent._get_active_rollout_item", new_callable=AsyncMock, return_value=None), \
+             patch("app.api.agent._complete_rollout_item_if_ready", new_callable=AsyncMock):
+            resp = await client.post(
+                "/api/agent/report-certs",
+                json={"certs": [
+                    {
+                        "local_path": "/etc/nginx/ssl/unassigned.crt",
+                        "cert_pem": "-----BEGIN CERTIFICATE-----\nMOCK\n-----END CERTIFICATE-----",
+                    }
+                ]},
+                headers={"X-Agent-Token": token},
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["recorded"] == 0
+
+    @pytest.mark.asyncio
+    async def test_report_certs_missing_token_returns_401(self, client):
+        """Missing X-Agent-Token → 401."""
+        resp = await client.post(
+            "/api/agent/report-certs",
+            json={"certs": []},
+        )
+        assert resp.status_code == 401
