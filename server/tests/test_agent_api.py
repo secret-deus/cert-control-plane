@@ -25,6 +25,12 @@ def _make_result(value):
     return r
 
 
+def _make_scalars_result(values):
+    r = MagicMock()
+    r.scalars.return_value.all.return_value = values
+    return r
+
+
 def _make_agent(
     name: str = "test-agent-01",
     *,
@@ -410,16 +416,14 @@ class TestFetchCerts:
         def mock_execute(*args, **kwargs):
             nonlocal call_count
             call_count += 1
-            result = MagicMock()
             if call_count == 1:
-                result.scalar_one_or_none.return_value = agent   # token lookup
-            else:
-                result.scalar_one_or_none.return_value = None    # no assignment
-            return result
+                return _make_result(agent)   # token lookup
+            return _make_scalars_result([])  # no assignments
 
         mock_db = AsyncMock()
         mock_db.execute = AsyncMock(side_effect=mock_execute)
         mock_db.commit = AsyncMock()
+        mock_db.add = MagicMock()
 
         from app.database import get_db
         client._transport.app.dependency_overrides[get_db] = lambda: mock_db
@@ -458,17 +462,15 @@ class TestFetchCerts:
         def mock_execute(*args, **kwargs):
             nonlocal call_count
             call_count += 1
-            result = MagicMock()
             if call_count == 1:
-                result.scalar_one_or_none.return_value = agent      # token lookup
-            elif call_count == 2:
-                result.scalar_one_or_none.return_value = assignment  # assignment lookup
-            return result
+                return _make_result(agent)                # token lookup
+            return _make_scalars_result([assignment])     # assignment list
 
         mock_db = AsyncMock()
         mock_db.execute = AsyncMock(side_effect=mock_execute)
         mock_db.get = AsyncMock(return_value=ext_cert)
         mock_db.commit = AsyncMock()
+        mock_db.add = MagicMock()
 
         from app.database import get_db
         client._transport.app.dependency_overrides[get_db] = lambda: mock_db
@@ -479,6 +481,7 @@ class TestFetchCerts:
         with patch("app.api.agent.write_audit", new_callable=AsyncMock), \
              patch("app.api.agent._get_active_rollout_item", new_callable=AsyncMock, return_value=None), \
              patch("app.api.agent._complete_rollout_item_if_ready", new_callable=AsyncMock), \
+             patch("app.api.agent.get_current_cert", new_callable=AsyncMock, return_value=None), \
              patch("app.api.agent.decrypt_key", return_value=b"PLAINTEXT-KEY"):
             resp = await client.post(
                 "/api/agent/fetch-certs",
@@ -494,6 +497,168 @@ class TestFetchCerts:
         assert data["updates"][0]["has_update"] is True
         assert data["updates"][0]["cert_pem"] is not None
         assert data["updates"][0]["key_pem"] == "PLAINTEXT-KEY"
+
+    @pytest.mark.asyncio
+    async def test_unreported_assigned_path_in_reported_dir_returns_update(self, client):
+        """New assigned path should be returned when it is under a reported cert directory."""
+        token = "agent-token"
+        agent = _make_agent(status=AgentStatus.ACTIVE, agent_token=token)
+
+        ext_cert = _make_ext_cert(
+            not_after=datetime.now(tz=timezone.utc) + timedelta(days=365)
+        )
+
+        assignment = MagicMock(spec=AgentCertAssignment)
+        assignment.agent_id = agent.id
+        assignment.external_cert_id = ext_cert.id
+        assignment.local_path = "/etc/nginx/ssl/admin.example.com.crt"
+
+        call_count = 0
+
+        def mock_execute(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return _make_result(agent)
+            return _make_scalars_result([assignment])
+
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock(side_effect=mock_execute)
+        mock_db.get = AsyncMock(return_value=ext_cert)
+        mock_db.commit = AsyncMock()
+        mock_db.add = MagicMock()
+
+        from app.database import get_db
+        client._transport.app.dependency_overrides[get_db] = lambda: mock_db
+
+        with patch("app.api.agent.write_audit", new_callable=AsyncMock), \
+             patch("app.api.agent._get_active_rollout_item", new_callable=AsyncMock, return_value=None), \
+             patch("app.api.agent._complete_rollout_item_if_ready", new_callable=AsyncMock), \
+             patch("app.api.agent.get_current_cert", new_callable=AsyncMock, return_value=None), \
+             patch("app.api.agent.decrypt_key", return_value=b"PLAINTEXT-KEY"):
+            resp = await client.post(
+                "/api/agent/fetch-certs",
+                json={
+                    "certs": [
+                        {"local_path": "/etc/nginx/ssl/api.example.com.crt"}
+                    ]
+                },
+                headers={"X-Agent-Token": token},
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        updates_by_path = {item["local_path"]: item for item in data["updates"]}
+        assert "/etc/nginx/ssl/api.example.com.crt" in updates_by_path
+        assert "/etc/nginx/ssl/admin.example.com.crt" in updates_by_path
+        assert updates_by_path["/etc/nginx/ssl/admin.example.com.crt"]["has_update"] is True
+        assert updates_by_path["/etc/nginx/ssl/admin.example.com.crt"]["key_pem"] == "PLAINTEXT-KEY"
+
+    @pytest.mark.asyncio
+    async def test_unreported_assigned_path_outside_reported_dir_is_ignored(self, client):
+        """New assigned path should not be returned when it is outside reported cert directories."""
+        token = "agent-token"
+        agent = _make_agent(status=AgentStatus.ACTIVE, agent_token=token)
+
+        ext_cert = _make_ext_cert(
+            not_after=datetime.now(tz=timezone.utc) + timedelta(days=365)
+        )
+
+        assignment = MagicMock(spec=AgentCertAssignment)
+        assignment.agent_id = agent.id
+        assignment.external_cert_id = ext_cert.id
+        assignment.local_path = "/opt/custom/admin.example.com.crt"
+
+        call_count = 0
+
+        def mock_execute(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return _make_result(agent)
+            return _make_scalars_result([assignment])
+
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock(side_effect=mock_execute)
+        mock_db.get = AsyncMock(return_value=ext_cert)
+        mock_db.commit = AsyncMock()
+        mock_db.add = MagicMock()
+
+        from app.database import get_db
+        client._transport.app.dependency_overrides[get_db] = lambda: mock_db
+
+        with patch("app.api.agent.write_audit", new_callable=AsyncMock), \
+             patch("app.api.agent._get_active_rollout_item", new_callable=AsyncMock, return_value=None), \
+             patch("app.api.agent._complete_rollout_item_if_ready", new_callable=AsyncMock):
+            resp = await client.post(
+                "/api/agent/fetch-certs",
+                json={
+                    "certs": [
+                        {"local_path": "/etc/nginx/ssl/api.example.com.crt"}
+                    ]
+                },
+                headers={"X-Agent-Token": token},
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["updates"]) == 1
+        assert data["updates"][0]["local_path"] == "/etc/nginx/ssl/api.example.com.crt"
+
+    @pytest.mark.asyncio
+    async def test_unreported_assigned_path_uses_snapshot_to_avoid_repeat_deploy(self, client):
+        """Already deployed unreported path should not be repeatedly returned as an update."""
+        token = "agent-token"
+        agent = _make_agent(status=AgentStatus.ACTIVE, agent_token=token)
+
+        ext_cert = _make_ext_cert(
+            not_after=datetime.now(tz=timezone.utc) + timedelta(days=365)
+        )
+
+        assignment = MagicMock(spec=AgentCertAssignment)
+        assignment.agent_id = agent.id
+        assignment.external_cert_id = ext_cert.id
+        assignment.local_path = "/etc/nginx/ssl/admin.example.com.crt"
+
+        call_count = 0
+
+        def mock_execute(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return _make_result(agent)
+            return _make_scalars_result([assignment])
+
+        deployed_snapshot = MagicMock()
+        deployed_snapshot.not_after = ext_cert.not_after
+
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock(side_effect=mock_execute)
+        mock_db.get = AsyncMock(return_value=ext_cert)
+        mock_db.commit = AsyncMock()
+        mock_db.add = MagicMock()
+
+        from app.database import get_db
+        client._transport.app.dependency_overrides[get_db] = lambda: mock_db
+
+        with patch("app.api.agent.write_audit", new_callable=AsyncMock), \
+             patch("app.api.agent._get_active_rollout_item", new_callable=AsyncMock, return_value=None), \
+             patch("app.api.agent._complete_rollout_item_if_ready", new_callable=AsyncMock), \
+             patch("app.api.agent.get_current_cert", new_callable=AsyncMock, return_value=deployed_snapshot):
+            resp = await client.post(
+                "/api/agent/fetch-certs",
+                json={
+                    "certs": [
+                        {"local_path": "/etc/nginx/ssl/api.example.com.crt"}
+                    ]
+                },
+                headers={"X-Agent-Token": token},
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        updates_by_path = {item["local_path"]: item for item in data["updates"]}
+        assert updates_by_path["/etc/nginx/ssl/admin.example.com.crt"]["has_update"] is False
 
     @pytest.mark.asyncio
     async def test_up_to_date_cert_returns_no_update(self, client):
@@ -514,17 +679,15 @@ class TestFetchCerts:
         def mock_execute(*args, **kwargs):
             nonlocal call_count
             call_count += 1
-            result = MagicMock()
             if call_count == 1:
-                result.scalar_one_or_none.return_value = agent
-            else:
-                result.scalar_one_or_none.return_value = assignment
-            return result
+                return _make_result(agent)
+            return _make_scalars_result([assignment])
 
         mock_db = AsyncMock()
         mock_db.execute = AsyncMock(side_effect=mock_execute)
         mock_db.get = AsyncMock(return_value=ext_cert)
         mock_db.commit = AsyncMock()
+        mock_db.add = MagicMock()
 
         from app.database import get_db
         client._transport.app.dependency_overrides[get_db] = lambda: mock_db

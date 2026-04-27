@@ -1,5 +1,5 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
-import { FileKey2, RefreshCw, Search, ShieldCheck, Trash2, UploadCloud, X } from 'lucide-react';
+import { FileKey2, RefreshCw, Search, ShieldCheck, Trash2, UploadCloud, X, Rocket } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { apiFetch, apiPost, apiUpload } from '../lib/api';
 import FileUploadZone from './FileUploadZone';
@@ -38,6 +38,7 @@ interface AgentSummary {
   liveness: 'online' | 'delayed' | 'offline';
   cert_count: number;
   expiring_soon_count: number;
+  cert_paths?: string[] | null;
 }
 
 interface RawAgentAssignment {
@@ -145,6 +146,10 @@ export default function CertManagementPage() {
     description: '',
     provider: 'manual',
   });
+  const [showDeploy, setShowDeploy] = useState(false);
+  const [selectedAgentIds, setSelectedAgentIds] = useState<Set<string>>(new Set());
+  const [deploying, setDeploying] = useState(false);
+  const [deployResult, setDeployResult] = useState<{ success: number; failed: number } | null>(null);
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -279,6 +284,44 @@ export default function CertManagementPage() {
       setUploadError(error instanceof Error ? error.message : '上传失败');
     } finally {
       setArchiveUploading(false);
+    }
+  };
+
+  const handleDeploy = async () => {
+    if (!selectedCertId || !selectedCert || selectedAgentIds.size === 0) return;
+
+    setDeploying(true);
+    setDeployResult(null);
+
+    let success = 0;
+    let failed = 0;
+
+    for (const agentId of selectedAgentIds) {
+      const agent = agents.find((a) => a.id === agentId);
+      if (!agent || !agent.cert_paths?.length) {
+        failed++;
+        continue;
+      }
+
+      const baseDir = agent.cert_paths[0].replace(/\/[^/]+$/, '');
+      const localPath = `${baseDir}/${selectedCert.subject_cn}.crt`;
+
+      try {
+        await apiPost(`/agents/${agent.id}/assign-cert`, {
+          external_cert_id: selectedCertId,
+          local_path: localPath,
+        });
+        success++;
+      } catch {
+        failed++;
+      }
+    }
+
+    setDeployResult({ success, failed });
+    setDeploying(false);
+    await fetchData();
+    if (selectedCertId) {
+      void loadCertDetail(selectedCertId, agents);
     }
   };
 
@@ -820,6 +863,19 @@ export default function CertManagementPage() {
                 )}
               </div>
 
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDeploy(true);
+                  setDeployResult(null);
+                  setSelectedAgentIds(new Set());
+                }}
+                className="flex w-full items-center justify-center gap-2 rounded-[18px] border border-[rgba(255,153,92,0.18)] bg-[rgba(255,153,92,0.10)] py-3 text-sm font-medium text-[#ffbf8f] transition hover:bg-[rgba(255,153,92,0.16)]"
+              >
+                <Rocket size={16} />
+                一键部署到 Agent
+              </button>
+
               <div className="rounded-[20px] border border-white/8 bg-white/[0.03] p-4">
                 <div className="text-sm font-medium text-white">私钥策略</div>
                 <p className="mt-2 text-sm leading-6 text-white/70">
@@ -846,6 +902,88 @@ export default function CertManagementPage() {
           ) : null}
         </aside>
       </div>
+
+      {showDeploy && selectedCertId && selectedCert && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="glass-panel w-full max-w-lg rounded-[24px] p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="section-kicker">Deploy</div>
+                <h3 className="mt-2 text-lg font-semibold text-white">一键部署证书</h3>
+              </div>
+              <button type="button" onClick={() => setShowDeploy(false)} className="rounded-[16px] border border-white/8 p-2 text-white/70 hover:text-white">
+                <X size={18} />
+              </button>
+            </div>
+
+            <p className="mt-3 text-sm text-white/50">
+              将 <span className="text-white">{selectedCert.subject_cn}</span> 部署到选中的 Agent，路径自动根据证书目录 + 域名生成。
+            </p>
+
+            <div className="mt-4">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs text-white/70">选择 Agent</span>
+                <div className="flex gap-3">
+                  <button type="button" onClick={() => setSelectedAgentIds(new Set(agents.filter(a => a.status === 'active' && a.cert_paths?.length).map(a => a.id)))} className="text-xs text-[#ffbf8f] hover:underline">全选可用</button>
+                  <button type="button" onClick={() => setSelectedAgentIds(new Set())} className="text-xs text-white/50 hover:underline">清空</button>
+                </div>
+              </div>
+              <div className="max-h-[280px] space-y-1.5 overflow-y-auto">
+                {agents.filter(a => a.status === 'active').map((agent) => {
+                  const hasPaths = !!agent.cert_paths?.length;
+                  const baseDir = agent.cert_paths?.[0]?.replace(/\/[^/]+$/, '') || null;
+                  const localPath = baseDir ? `${baseDir}/${selectedCert.subject_cn}.crt` : null;
+                  const checked = selectedAgentIds.has(agent.id);
+
+                  return (
+                    <label key={agent.id} className={`flex cursor-pointer items-center gap-3 rounded-[14px] border border-white/4 px-3 py-2.5 transition hover:bg-white/[0.03] ${!hasPaths ? 'opacity-40' : ''}`}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={!hasPaths}
+                        onChange={(e) => {
+                          const next = new Set(selectedAgentIds);
+                          if (e.target.checked) next.add(agent.id); else next.delete(agent.id);
+                          setSelectedAgentIds(next);
+                        }}
+                        className="h-4 w-4 rounded border-white/20 bg-transparent accent-[#ffbf8f]"
+                      />
+                      <span className={`h-2 w-2 shrink-0 rounded-full ${livenessTone[agent.liveness]}`} />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm text-white">{agent.name}</div>
+                        {hasPaths ? (
+                          <div className="mt-0.5 truncate font-mono text-xs text-[#9adf90]">{localPath}</div>
+                        ) : (
+                          <div className="mt-0.5 text-xs text-white/30">未上报证书路径</div>
+                        )}
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            {deployResult && (
+              <div className={`mt-3 rounded-[14px] border p-3 text-sm ${deployResult.failed === 0 ? 'border-[rgba(115,191,105,0.18)] bg-[rgba(115,191,105,0.10)] text-[#9adf90]' : 'border-[rgba(255,153,92,0.18)] bg-[rgba(255,153,92,0.10)] text-[#ffbf8f]'}`}>
+                部署完成：成功 {deployResult.success} 个，失败 {deployResult.failed} 个
+              </div>
+            )}
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={() => setShowDeploy(false)} className="btn-secondary">关闭</button>
+              <button
+                type="button"
+                onClick={handleDeploy}
+                disabled={deploying || selectedAgentIds.size === 0}
+                className="btn-primary flex items-center gap-1.5"
+              >
+                <Rocket size={14} />
+                {deploying ? '部署中...' : `部署到 ${selectedAgentIds.size} 个 Agent`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">

@@ -168,8 +168,8 @@ class TestArchiveParserExtract:
 class TestArchiveParserDetect:
     def test_detect_standard_files(self):
         files = {
-            "api.example.com.key": "key content",
-            "api.example.com.pem": "cert content",
+            "api.example.com.key": "-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----",
+            "api.example.com.pem": "-----BEGIN CERTIFICATE-----\ncert\n-----END CERTIFICATE-----",
         }
 
         detection = ArchiveParser._detect_files(files)
@@ -180,8 +180,8 @@ class TestArchiveParserDetect:
 
     def test_detect_fullchain(self):
         files = {
-            "test.key": "key",
-            "fullchain.pem": "cert + chain",
+            "test.key": "-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----",
+            "fullchain.pem": "-----BEGIN CERTIFICATE-----\nleaf\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\nchain\n-----END CERTIFICATE-----",
         }
 
         detection = ArchiveParser._detect_files(files)
@@ -190,9 +190,9 @@ class TestArchiveParserDetect:
 
     def test_detect_chain_file(self):
         files = {
-            "test.key": "key",
-            "test.pem": "cert",
-            "chain.pem": "chain",
+            "test.key": "-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----",
+            "test.pem": "-----BEGIN CERTIFICATE-----\ncert\n-----END CERTIFICATE-----",
+            "chain.pem": "-----BEGIN CERTIFICATE-----\nchain\n-----END CERTIFICATE-----",
         }
 
         detection = ArchiveParser._detect_files(files)
@@ -202,22 +202,22 @@ class TestArchiveParserDetect:
 
     def test_detect_multiple_key_files_raises(self):
         files = {
-            "test1.key": "key1",
-            "test2.key": "key2",
-            "test.pem": "cert",
+            "test1.key": "-----BEGIN PRIVATE KEY-----\nkey1\n-----END PRIVATE KEY-----",
+            "test2.key": "-----BEGIN PRIVATE KEY-----\nkey2\n-----END PRIVATE KEY-----",
+            "test.pem": "-----BEGIN CERTIFICATE-----\ncert\n-----END CERTIFICATE-----",
         }
 
         with pytest.raises(HTTPException) as exc:
             ArchiveParser._detect_files(files)
 
         assert exc.value.status_code == 400
-        assert "Multiple .key files" in exc.value.detail
+        assert "Multiple private key files" in exc.value.detail
 
     def test_detect_multiple_cert_pairs_raises(self):
         files = {
-            "test.key": "key",
-            "test1.pem": "cert1",
-            "test2.pem": "cert2",
+            "test.key": "-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----",
+            "test1.pem": "-----BEGIN CERTIFICATE-----\ncert1\n-----END CERTIFICATE-----",
+            "test2.pem": "-----BEGIN CERTIFICATE-----\ncert2\n-----END CERTIFICATE-----",
         }
 
         with pytest.raises(HTTPException) as exc:
@@ -225,6 +225,17 @@ class TestArchiveParserDetect:
 
         assert exc.value.status_code == 400
         assert "Multiple certificate pairs" in exc.value.detail
+
+    def test_detect_crt_and_pem_key_files(self):
+        files = {
+            "admin.example.com.crt": "-----BEGIN CERTIFICATE-----\ncert\n-----END CERTIFICATE-----",
+            "privkey.pem": "-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----",
+        }
+
+        detection = ArchiveParser._detect_files(files)
+
+        assert detection.cert_file == "admin.example.com.crt"
+        assert detection.key_file == "privkey.pem"
 
 
 class TestArchiveParserParse:
@@ -272,6 +283,37 @@ class TestArchiveParserParse:
 
         assert result.cert_pem.strip() == cert_pem.strip()
 
+    def test_parse_zip_success_with_crt_and_pem_key(self):
+        cert_pem, key_pem, _ = generate_test_cert_key_pair("admin.example.com")
+        archive_bytes = create_zip_archive(
+            {
+                "admin.example.com.crt": cert_pem,
+                "privkey.pem": key_pem,
+            }
+        )
+
+        result = ArchiveParser.parse(archive_bytes, "test.zip")
+
+        assert result.cert_filename == "admin.example.com.crt"
+        assert result.key_filename == "privkey.pem"
+        assert result.metadata.subject_cn == "admin.example.com"
+
+    def test_parse_zip_success_with_fullchain_and_privkey_pem(self):
+        cert_pem, key_pem, _ = generate_test_cert_key_pair("admin.example.com")
+        chain_pem, _, _ = generate_test_cert_key_pair("chain.example.com")
+        archive_bytes = create_zip_archive(
+            {
+                "fullchain.pem": f"{cert_pem}\n{chain_pem}",
+                "privkey.pem": key_pem,
+            }
+        )
+
+        result = ArchiveParser.parse(archive_bytes, "test.zip")
+
+        assert result.cert_filename == "fullchain.pem"
+        assert result.key_filename == "privkey.pem"
+        assert result.chain_pem is not None
+
     def test_parse_exceeds_size_limit(self):
         large_bytes = b"x" * (MAX_ARCHIVE_SIZE + 1)
 
@@ -300,9 +342,9 @@ class TestArchiveParserParse:
             ArchiveParser.parse(archive_bytes, "test.zip")
 
         assert exc.value.status_code == 400
-        assert "No .key file" in exc.value.detail
+        assert "No private key file" in exc.value.detail
 
-    def test_parse_missing_pem_file(self):
+    def test_parse_missing_certificate_file(self):
         _, key_pem, _ = generate_test_cert_key_pair()
         archive_bytes = create_zip_archive(
             {
@@ -314,7 +356,7 @@ class TestArchiveParserParse:
             ArchiveParser.parse(archive_bytes, "test.zip")
 
         assert exc.value.status_code == 400
-        assert "No .pem file" in exc.value.detail
+        assert "No certificate file" in exc.value.detail
 
     def test_parse_key_mismatch(self):
         cert_pem, _, _ = generate_test_cert_key_pair("test1.example.com")

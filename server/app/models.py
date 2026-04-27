@@ -69,6 +69,8 @@ class Agent(Base):
     # Secret token issued after admin approval; used in X-Agent-Token header
     agent_token: Mapped[str | None] = mapped_column(String(128), unique=True)
     last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Cert paths reported by agent during fetch-certs (JSON list of local_path strings)
+    cert_paths: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

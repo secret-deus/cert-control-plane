@@ -45,6 +45,7 @@ class FileDetection:
 
 MAX_ARCHIVE_SIZE = 10 * 1024 * 1024
 MAX_EXTRACTED_SIZE = 50 * 1024 * 1024
+SUPPORTED_TEXT_EXTENSIONS = (".pem", ".key", ".crt", ".cer")
 
 
 class ArchiveParser:
@@ -70,11 +71,11 @@ class ArchiveParser:
 
         if not detection.key_file:
             raise HTTPException(
-                status_code=400, detail="No .key file found in archive."
+                status_code=400, detail="No private key file found in archive."
             )
         if not detection.cert_file:
             raise HTTPException(
-                status_code=400, detail="No .pem file found in archive."
+                status_code=400, detail="No certificate file found in archive."
             )
 
         cert_content = files[detection.cert_file]
@@ -121,15 +122,15 @@ class ArchiveParser:
                     base = os.path.basename(name)
                     if base.startswith(".") or base.startswith("_"):
                         continue
-                    if name.lower().endswith((".pem", ".key")):
+                    if name.lower().endswith(SUPPORTED_TEXT_EXTENSIONS):
                         raw_content = zf.read(info.filename)
                         try:
                             content = raw_content.decode("utf-8")
-                        except UnicodeDecodeError:
+                        except UnicodeDecodeError as err:
                             raise HTTPException(
                                 status_code=400,
                                 detail=f"File {name} is not valid UTF-8 text",
-                            )
+                            ) from err
                         total_extracted += len(content.encode("utf-8"))
                         if total_extracted > MAX_EXTRACTED_SIZE:
                             raise HTTPException(
@@ -137,10 +138,10 @@ class ArchiveParser:
                                 detail="Extracted data exceeds 50MB limit (compression bomb detected)",
                             )
                         files[name] = content
-        except zipfile.BadZipFile as e:
+        except zipfile.BadZipFile as err:
             raise HTTPException(
-                status_code=400, detail=f"Failed to extract archive: {e}"
-            )
+                status_code=400, detail=f"Failed to extract archive: {err}"
+            ) from err
         return files
 
     @staticmethod
@@ -162,17 +163,17 @@ class ArchiveParser:
                     base = os.path.basename(name)
                     if base.startswith(".") or base.startswith("_"):
                         continue
-                    if name.lower().endswith((".pem", ".key")):
+                    if name.lower().endswith(SUPPORTED_TEXT_EXTENSIONS):
                         f = tf.extractfile(member)
                         if f:
                             raw_content = f.read()
                             try:
                                 content = raw_content.decode("utf-8")
-                            except UnicodeDecodeError:
+                            except UnicodeDecodeError as err:
                                 raise HTTPException(
                                     status_code=400,
                                     detail=f"File {name} is not valid UTF-8 text",
-                                )
+                                ) from err
                             total_extracted += len(content.encode("utf-8"))
                             if total_extracted > MAX_EXTRACTED_SIZE:
                                 raise HTTPException(
@@ -180,44 +181,45 @@ class ArchiveParser:
                                     detail="Extracted data exceeds 50MB limit (compression bomb detected)",
                                 )
                             files[name] = content
-        except tarfile.TarError as e:
+        except tarfile.TarError as err:
             raise HTTPException(
-                status_code=400, detail=f"Failed to extract archive: {e}"
-            )
+                status_code=400, detail=f"Failed to extract archive: {err}"
+            ) from err
         return files
 
     @staticmethod
     def _detect_files(files: dict[str, str]) -> FileDetection:
         key_files = []
-        pem_files = []
+        cert_files = []
 
-        for filename in files.keys():
-            base = filename.lower()
-            if base.endswith(".key"):
+        for filename, content in files.items():
+            if ArchiveParser._looks_like_private_key(content):
                 key_files.append(filename)
-            elif base.endswith(".pem"):
-                pem_files.append(filename)
+            elif ArchiveParser._looks_like_certificate(content):
+                cert_files.append(filename)
 
         if len(key_files) > 1:
             raise HTTPException(
                 status_code=400,
-                detail="Multiple .key files found. Please upload a single pair.",
+                detail="Multiple private key files found. Please upload a single pair.",
             )
 
-        if len(pem_files) > 1:
-            chain_files = [f for f in pem_files if "chain" in f.lower()]
-            cert_files = [f for f in pem_files if "chain" not in f.lower()]
+        if len(cert_files) > 1:
+            chain_files = [
+                f for f in cert_files if ArchiveParser._looks_like_chain_file(f, files[f])
+            ]
+            leaf_cert_files = [f for f in cert_files if f not in chain_files]
 
-            if len(cert_files) > 1:
+            if len(leaf_cert_files) > 1:
                 raise HTTPException(
                     status_code=400,
                     detail="Multiple certificate pairs found. Please upload a single pair.",
                 )
 
-            cert_file = cert_files[0] if cert_files else pem_files[0]
+            cert_file = leaf_cert_files[0] if leaf_cert_files else cert_files[0]
             chain_file = chain_files[0] if chain_files else None
-        elif len(pem_files) == 1:
-            cert_file = pem_files[0]
+        elif len(cert_files) == 1:
+            cert_file = cert_files[0]
             chain_file = None
         else:
             cert_file = None
@@ -230,14 +232,37 @@ class ArchiveParser:
             all_files=list(files.keys()),
         )
 
+    @staticmethod
+    def _looks_like_private_key(content: str) -> bool:
+        markers = (
+            "-----BEGIN PRIVATE KEY-----",
+            "-----BEGIN RSA PRIVATE KEY-----",
+            "-----BEGIN EC PRIVATE KEY-----",
+            "-----BEGIN ENCRYPTED PRIVATE KEY-----",
+        )
+        return any(marker in content for marker in markers)
+
+    @staticmethod
+    def _looks_like_certificate(content: str) -> bool:
+        return "-----BEGIN CERTIFICATE-----" in content
+
+    @staticmethod
+    def _looks_like_chain_file(filename: str, content: str) -> bool:
+        lowered = filename.lower()
+        if any(token in lowered for token in ("chain", "fullchain", "bundle")):
+            return True
+        return content.count("-----BEGIN CERTIFICATE-----") > 1
+
 
 class CertParser:
     @staticmethod
     def parse_certificate(cert_pem: str) -> CertMetadata:
         try:
             cert = x509.load_pem_x509_certificate(cert_pem.encode())
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Invalid certificate PEM: {e}")
+        except Exception as err:
+            raise HTTPException(
+                status_code=400, detail=f"Invalid certificate PEM: {err}"
+            ) from err
 
         cn_attrs = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
         if not cn_attrs:
@@ -296,8 +321,10 @@ class KeyValidator:
                 password=None,
             )
             return key
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Invalid private key PEM: {e}")
+        except Exception as err:
+            raise HTTPException(
+                status_code=400, detail=f"Invalid private key PEM: {err}"
+            ) from err
 
     @staticmethod
     def validate_key_match(cert_pem: str, key_pem: str) -> bool:

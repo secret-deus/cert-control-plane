@@ -9,6 +9,7 @@ Authentication:
 """
 
 import logging
+import os
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
@@ -404,20 +405,37 @@ async def fetch_certs(
 
     updates: list[CertUpdateItem] = []
 
-    for check in body.certs:
-        # Find assignment for this agent + local_path
-        assignment_result = await db.execute(
-            select(AgentCertAssignment).where(
-                AgentCertAssignment.agent_id == agent.id,
-                AgentCertAssignment.local_path == check.local_path,
-            )
-        )
-        assignment = assignment_result.scalar_one_or_none()
+    assignment_result = await db.execute(
+        select(AgentCertAssignment).where(AgentCertAssignment.agent_id == agent.id)
+    )
+    assignments = list(assignment_result.scalars().all())
+    assignments_by_path = {assignment.local_path: assignment for assignment in assignments}
+
+    checks_by_path = {check.local_path: check for check in body.certs}
+    all_paths = list(checks_by_path.keys())
+    reported_paths = list(checks_by_path.keys()) or list(agent.cert_paths or [])
+    reported_dirs = {os.path.dirname(path) for path in reported_paths}
+    for assignment in assignments:
+        assignment_dir = os.path.dirname(assignment.local_path)
+        if (
+            assignment.local_path not in checks_by_path
+            and assignment_dir in reported_dirs
+        ):
+            all_paths.append(assignment.local_path)
+
+    for local_path in all_paths:
+        check = checks_by_path.get(local_path)
+        assignment = assignments_by_path.get(local_path)
+        current_not_after = check.current_not_after if check else None
+        if current_not_after is None and check is None:
+            current_snapshot = await get_current_cert(db, agent.id, local_path=local_path)
+            if current_snapshot is not None:
+                current_not_after = current_snapshot.not_after
 
         if assignment is None:
             # No assignment for this path
             updates.append(CertUpdateItem(
-                local_path=check.local_path,
+                local_path=local_path,
                 has_update=False,
             ))
             continue
@@ -428,31 +446,31 @@ async def fetch_certs(
         )
         if ext_cert is None or not ext_cert.is_active:
             updates.append(CertUpdateItem(
-                local_path=check.local_path,
+                local_path=local_path,
                 has_update=False,
             ))
             continue
 
         if (
-            check.current_not_after is not None
-            and check.current_not_after >= ext_cert.not_after
+            current_not_after is not None
+            and current_not_after >= ext_cert.not_after
         ):
             await record_deployed_cert(
                 db,
                 agent_id=agent.id,
-                local_path=check.local_path,
+                local_path=local_path,
                 external_cert=ext_cert,
             )
 
         # Compare not_after: update if server cert is newer
         has_update = (
-            check.current_not_after is None
-            or ext_cert.not_after > check.current_not_after
+            current_not_after is None
+            or ext_cert.not_after > current_not_after
         )
 
         if has_update and not updates_allowed:
             updates.append(CertUpdateItem(
-                local_path=check.local_path,
+                local_path=local_path,
                 has_update=False,
                 not_after=ext_cert.not_after,
             ))
@@ -460,7 +478,7 @@ async def fetch_certs(
 
         if not has_update:
             updates.append(CertUpdateItem(
-                local_path=check.local_path,
+                local_path=local_path,
                 has_update=False,
                 not_after=ext_cert.not_after,
             ))
@@ -478,13 +496,13 @@ async def fetch_certs(
                 assignment.id,
             )
             updates.append(CertUpdateItem(
-                local_path=check.local_path,
+                local_path=local_path,
                 has_update=False,
             ))
             continue
 
         updates.append(CertUpdateItem(
-            local_path=check.local_path,
+            local_path=local_path,
             has_update=True,
             cert_pem=ext_cert.cert_pem,
             key_pem=key_pem,
@@ -494,6 +512,9 @@ async def fetch_certs(
 
     await _complete_rollout_item_if_ready(db, agent=agent, rollout_item=rollout_item)
 
+    agent.cert_paths = list(checks_by_path.keys())
+    db.add(agent)
+
     await write_audit(
         db,
         action="agent_fetch_certs",
@@ -501,7 +522,8 @@ async def fetch_certs(
         entity_id=agent.id,
         actor=agent.name,
         details={
-            "paths_checked": len(body.certs),
+            "paths_reported": len(body.certs),
+            "paths_checked": len(all_paths),
             "paths_updated": sum(1 for u in updates if u.has_update),
         },
         ip_address=request.client.host if request.client else None,
@@ -545,6 +567,7 @@ async def report_certs(
         agent = await _resolve_agent_by_token(x_agent_token, db)
 
     recorded = 0
+    reported_paths = list(agent.cert_paths or [])
     for item in body.certs:
         assignment_result = await db.execute(
             select(AgentCertAssignment).where(
@@ -568,10 +591,16 @@ async def report_certs(
             local_path=item.local_path,
             external_cert=ext_cert,
         )
+        if item.local_path not in reported_paths:
+            reported_paths.append(item.local_path)
         recorded += 1
 
     rollout_item = await _get_active_rollout_item(db, agent_id=agent.id)
     await _complete_rollout_item_if_ready(db, agent=agent, rollout_item=rollout_item)
+
+    if reported_paths != list(agent.cert_paths or []):
+        agent.cert_paths = reported_paths
+        db.add(agent)
 
     if recorded > 0:
         await write_audit(

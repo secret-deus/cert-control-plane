@@ -1,9 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ShieldCheck, Wifi, Clock, RefreshCw } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
+import { AlertTriangle, ShieldCheck, Wifi, Clock, RefreshCw, Activity } from 'lucide-react';
+import { formatDistanceToNow, format } from 'date-fns';
+import { zhCN } from 'date-fns/locale';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import { apiFetch } from '../lib/api';
 import CertExpiryTrend from './CertExpiryTrend';
+
+interface AuditEvent {
+  id: string;
+  action: string;
+  entity_type: string;
+  actor: string;
+  created_at: string;
+  details?: Record<string, unknown>;
+}
 
 interface DashboardSummary {
   agents: { total: number; active: number; pending_approval: number };
@@ -81,11 +91,53 @@ function ChartSkeleton() {
   return <div className="skeleton h-[240px] rounded-[24px]" />;
 }
 
+const actionConfig: Record<string, { label: string; color: string; bg: string; icon: string }> = {
+  agent_registered: { label: 'Agent 注册', color: 'text-[#73bf69]', bg: 'bg-[rgba(115,191,105,0.14)]', icon: '🤖' },
+  agent_approved: { label: 'Agent 审批', color: 'text-[#73bf69]', bg: 'bg-[rgba(115,191,105,0.14)]', icon: '✅' },
+  agent_revoked: { label: 'Agent 吊销', color: 'text-[#f2495c]', bg: 'bg-[rgba(242,73,92,0.14)]', icon: '🚫' },
+  agent_heartbeat: { label: '心跳上报', color: 'text-white/60', bg: 'bg-white/[0.04]', icon: '💓' },
+  agent_fetch_certs: { label: '拉取证书', color: 'text-[#5794f2]', bg: 'bg-[rgba(87,148,242,0.14)]', icon: '📥' },
+  agent_report_certs: { label: '部署上报', color: 'text-[#73bf69]', bg: 'bg-[rgba(115,191,105,0.14)]', icon: '📤' },
+  cert_uploaded: { label: '证书上传', color: 'text-[#5794f2]', bg: 'bg-[rgba(87,148,242,0.14)]', icon: '📜' },
+  cert_assigned: { label: '证书分配', color: 'text-[#f2cc0c]', bg: 'bg-[rgba(242,204,12,0.14)]', icon: '🔗' },
+  cert_assignment_deleted: { label: '解除分配', color: 'text-[#f2495c]', bg: 'bg-[rgba(242,73,92,0.14)]', icon: '✂️' },
+  rollout_created: { label: '批次创建', color: 'text-[#5794f2]', bg: 'bg-[rgba(87,148,242,0.14)]', icon: '🚀' },
+  rollout_started: { label: '批次启动', color: 'text-[#73bf69]', bg: 'bg-[rgba(115,191,105,0.14)]', icon: '▶️' },
+  rollout_completed: { label: '批次完成', color: 'text-[#73bf69]', bg: 'bg-[rgba(115,191,105,0.14)]', icon: '✅' },
+  rollout_paused: { label: '批次暂停', color: 'text-[#f2cc0c]', bg: 'bg-[rgba(242,204,12,0.14)]', icon: '⏸️' },
+  rollout_rolled_back: { label: '批次回滚', color: 'text-[#f2495c]', bg: 'bg-[rgba(242,73,92,0.14)]', icon: '⏪' },
+  ext_cert_deactivated: { label: '证书停用', color: 'text-[#f2495c]', bg: 'bg-[rgba(242,73,92,0.14)]', icon: '🛑' },
+  default: { label: '操作', color: 'text-white/60', bg: 'bg-white/[0.04]', icon: '⚙️' },
+};
+
+function formatDetails(event: AuditEvent): string {
+  const d = event.details;
+  if (!d) return '';
+  if (event.action === 'agent_fetch_certs') {
+    return `检查 ${d.paths_checked} 条路径，更新 ${d.paths_updated} 条`;
+  }
+  if (event.action === 'agent_report_certs') {
+    return `上报 ${d.reported} 条，记录 ${d.recorded} 条`;
+  }
+  if (event.action === 'cert_uploaded' || event.action === 'external_cert_uploaded') {
+    return d.subject_cn ? `CN=${d.subject_cn}` : '';
+  }
+  if (event.action === 'cert_assigned' || event.action === 'cert_assignment_deleted') {
+    return d.local_path ? `路径: ${d.local_path}` : '';
+  }
+  if (event.action === 'rollout_created') {
+    return `批次大小: ${d.batch_size || '-'}`;
+  }
+  const parts = Object.entries(d).map(([k, v]) => `${k}=${v}`).join(', ');
+  return parts;
+}
+
 export default function Dashboard() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [agents, setAgents] = useState<AgentHealth[]>([]);
   const [externalCerts, setExternalCerts] = useState<ExternalCert[]>([]);
   const [alertData, setAlertData] = useState<CertAlertResponse | null>(null);
+  const [events, setEvents] = useState<AuditEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -93,17 +145,19 @@ export default function Dashboard() {
     setIsLoading(true);
 
     try {
-      const [summaryData, healthData, alertsData, extCertsData] = await Promise.all([
+      const [summaryData, healthData, alertsData, extCertsData, eventsData] = await Promise.all([
         apiFetch<DashboardSummary>('/dashboard/summary'),
         apiFetch<AgentHealth[]>('/dashboard/agents-health'),
         apiFetch<CertAlertResponse>('/dashboard/cert-alerts'),
         apiFetch<{ items: ExternalCert[]; total: number }>('/external-certs?limit=100'),
+        apiFetch<AuditEvent[]>('/dashboard/events'),
       ]);
 
       setSummary(summaryData);
       setAgents(healthData);
       setAlertData(alertsData);
       setExternalCerts(extCertsData.items);
+      setEvents(eventsData);
     } catch (error) {
       console.error('Failed to fetch dashboard data:', error);
     } finally {
@@ -114,17 +168,19 @@ export default function Dashboard() {
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      const [summaryData, healthData, alertsData, extCertsData] = await Promise.all([
+      const [summaryData, healthData, alertsData, extCertsData, eventsData] = await Promise.all([
         apiFetch<DashboardSummary>('/dashboard/summary'),
         apiFetch<AgentHealth[]>('/dashboard/agents-health'),
         apiFetch<CertAlertResponse>('/dashboard/cert-alerts'),
         apiFetch<{ items: ExternalCert[]; total: number }>('/external-certs?limit=100'),
+        apiFetch<AuditEvent[]>('/dashboard/events'),
       ]);
 
       setSummary(summaryData);
       setAgents(healthData);
       setAlertData(alertsData);
       setExternalCerts(extCertsData.items);
+      setEvents(eventsData);
     } catch (error) {
       console.error('Failed to refresh dashboard data:', error);
     } finally {
@@ -360,6 +416,51 @@ export default function Dashboard() {
           </div>
         </section>
       </div>
+
+      <section className="glass-panel rounded-[24px] px-5 py-5 lg:px-6 lg:py-6">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="section-kicker">Activity</div>
+            <h3 className="mt-2 text-lg font-semibold text-white">最近操作日志</h3>
+          </div>
+          <div className="rounded-[16px] border border-white/8 bg-white/[0.03] p-3 text-white/70">
+            <Activity size={16} />
+          </div>
+        </div>
+
+        {events.length === 0 ? (
+          <div className="ops-chart-frame mt-5 py-10 text-center text-sm text-white/50">暂无操作记录。</div>
+        ) : (
+          <div className="mt-5 space-y-1.5">
+            {events.slice(0, 15).map((event) => {
+              const config = actionConfig[event.action] || actionConfig.default;
+              const time = formatDistanceToNow(new Date(event.created_at), { addSuffix: true, locale: zhCN });
+              return (
+                <div key={event.id} className="flex items-center gap-3 rounded-[14px] border border-white/4 bg-white/[0.01] px-3.5 py-2.5 transition hover:bg-white/[0.03]">
+                  <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-[10px] text-[11px] ${config.bg}`}>
+                    {config.icon}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-sm font-medium ${config.color}`}>{config.label}</span>
+                      <span className="text-xs text-white/40">·</span>
+                      <span className="text-xs text-white/50 truncate">{event.actor}</span>
+                    </div>
+                    {event.details && (
+                      <div className="mt-0.5 text-xs text-white/35 truncate">
+                        {formatDetails(event)}
+                      </div>
+                    )}
+                  </div>
+                  <div className="shrink-0 text-[11px] text-white/30" title={format(new Date(event.created_at), 'yyyy-MM-dd HH:mm:ss')}>
+                    {time}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

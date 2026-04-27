@@ -1,5 +1,6 @@
 """Control API – admin-facing endpoints (X-Admin-API-Key auth)."""
 
+import os
 import uuid
 from datetime import datetime, timezone
 
@@ -41,6 +42,8 @@ from app.orchestrator.rollout import (
 from app.schemas import (
     AgentCertAssignRequest,
     AgentCertAssignmentRead,
+    BatchAssignRequest,
+    BatchAssignResult,
     AgentCreate,
     AgentDetailRead,
     AgentRead,
@@ -460,13 +463,36 @@ async def upload_external_cert(
         )
 
     existing_by_cn = await db.execute(
-        select(ExternalCertificate).where(ExternalCertificate.subject_cn == subject_cn)
+        select(ExternalCertificate)
+        .where(ExternalCertificate.subject_cn == subject_cn, ExternalCertificate.is_active == True)
+        .order_by(ExternalCertificate.not_after.desc())
+        .limit(1)
     )
     old_cert = existing_by_cn.scalar_one_or_none()
 
     key_encrypted = encrypt_key(body.key_pem.encode(), settings.ca_key_encryption_key)
 
     if old_cert:
+        # Migrate all assignments from other same-CN certs to the renewed cert
+        other_same_cn = await db.execute(
+            select(ExternalCertificate).where(
+                ExternalCertificate.subject_cn == subject_cn,
+                ExternalCertificate.is_active == True,
+                ExternalCertificate.id != old_cert.id,
+            )
+        )
+        for stale_cert in other_same_cn.scalars().all():
+            stale_assignments = await db.execute(
+                select(AgentCertAssignment).where(
+                    AgentCertAssignment.external_cert_id == stale_cert.id
+                )
+            )
+            for assignment in stale_assignments.scalars().all():
+                assignment.external_cert_id = old_cert.id
+                db.add(assignment)
+            stale_cert.is_active = False
+            db.add(stale_cert)
+
         old_cert.name = body.name
         old_cert.description = body.description
         old_cert.cert_pem = body.cert_pem
@@ -501,6 +527,41 @@ async def upload_external_cert(
         message = (
             "Certificate uploaded. Use /agents/{id}/assign-cert to assign to agents."
         )
+
+    await db.flush()
+
+    # Auto-assign: find agents with cert_paths containing this domain
+    auto_assigned = 0
+    agents_result = await db.execute(
+        select(Agent).where(Agent.status == AgentStatus.ACTIVE, Agent.cert_paths.isnot(None))
+    )
+    active_agents = agents_result.scalars().all()
+
+    for agent in active_agents:
+        if not agent.cert_paths:
+            continue
+        for path in agent.cert_paths:
+            filename = os.path.basename(path)
+            domain_from_path = filename.rsplit(".", 1)[0] if "." in filename else filename
+            if domain_from_path == subject_cn:
+                existing = await db.execute(
+                    select(AgentCertAssignment).where(
+                        AgentCertAssignment.agent_id == agent.id,
+                        AgentCertAssignment.local_path == path,
+                    )
+                )
+                if not existing.scalar_one_or_none():
+                    assignment = AgentCertAssignment(
+                        agent_id=agent.id,
+                        external_cert_id=external_cert.id,
+                        local_path=path,
+                    )
+                    db.add(assignment)
+                    auto_assigned += 1
+
+    if auto_assigned > 0:
+        message = f"Certificate uploaded and auto-assigned to {auto_assigned} agent(s)."
+        action = "external_cert_uploaded_auto_assigned"
 
     await db.flush()
 
@@ -540,10 +601,11 @@ async def upload_external_cert(
     description="""
 上传证书压缩包（.zip / .tar.gz / .tgz），自动解析并创建证书记录。
 
-- 压缩包必须包含一个 .key 文件和一个 .pem 文件
-- 自动识别证书和私钥，验证匹配关系
+- 支持证书文件后缀 `.pem` / `.crt` / `.cer`
+- 支持私钥文件后缀 `.key` / `.pem`
+- 自动按 PEM 内容识别证书、私钥和证书链，不强依赖文件名
 - 私钥会被 Fernet 加密后存储
-- 支持包含证书链的 fullchain.pem
+- 支持 `fullchain.pem` / `chain.pem` / `bundle.crt` 等链文件
     """,
 )
 async def upload_cert_archive(
@@ -827,6 +889,88 @@ async def assign_cert_to_agent(
     await db.commit()
     await db.refresh(assignment)
     return assignment
+
+
+@router.post(
+    "/certs/deploy",
+    response_model=BatchAssignResult,
+    status_code=status.HTTP_201_CREATED,
+    tags=["control / external-certs"],
+    summary="批量部署证书到多个 Agent",
+    description="""
+将外部证书批量部署到多个 Agent。
+
+指定证书 ID、目标 Agent 列表和本地路径，系统会为每个 Agent 创建分配。
+Agent 下次心跳时会自动拉取最新证书并部署。
+    """,
+)
+async def batch_deploy_cert(
+    body: BatchAssignRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    ext_cert = await db.get(ExternalCertificate, body.external_cert_id)
+    if not ext_cert:
+        raise HTTPException(status_code=404, detail="External certificate not found")
+
+    assignments = []
+    success = 0
+    failed = 0
+
+    for agent_id in body.agent_ids:
+        agent = await db.get(Agent, agent_id)
+        if not agent or agent.status != AgentStatus.ACTIVE:
+            failed += 1
+            continue
+
+        existing_result = await db.execute(
+            select(AgentCertAssignment).where(
+                AgentCertAssignment.agent_id == agent_id,
+                AgentCertAssignment.local_path == body.local_path,
+            )
+        )
+        existing = existing_result.scalar_one_or_none()
+
+        if existing:
+            existing.external_cert_id = body.external_cert_id
+            db.add(existing)
+            assignments.append(existing)
+        else:
+            assignment = AgentCertAssignment(
+                agent_id=agent_id,
+                external_cert_id=body.external_cert_id,
+                local_path=body.local_path,
+            )
+            db.add(assignment)
+            assignments.append(assignment)
+        success += 1
+
+    if assignments:
+        await db.flush()
+
+        await write_audit(
+            db,
+            action="cert_batch_deployed",
+            entity_type="external_certificate",
+            entity_id=body.external_cert_id,
+            actor=_actor(request),
+            details={
+                "cert_name": ext_cert.name,
+                "target_agents": success,
+                "local_path": body.local_path,
+            },
+            ip_address=_ip(request),
+        )
+
+    await db.commit()
+    for a in assignments:
+        await db.refresh(a)
+
+    return BatchAssignResult(
+        success=success,
+        failed=failed,
+        assignments=assignments,
+    )
 
 
 @router.get(

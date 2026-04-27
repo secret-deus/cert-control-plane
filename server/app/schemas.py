@@ -40,6 +40,7 @@ class AgentRead(BaseModel):
     fingerprint: str | None
     last_seen: datetime | None
     created_at: datetime
+    cert_paths: list[str] | None = None
     # Enhanced fields for UI
     liveness: str | None = None  # 'online' | 'delayed' | 'offline'
     cert_count: int = 0
@@ -251,6 +252,18 @@ class AgentCertAssignmentRead(BaseModel):
     external_cert_id: uuid.UUID
     local_path: str
     created_at: datetime
+
+
+class BatchAssignRequest(BaseModel):
+    external_cert_id: uuid.UUID
+    agent_ids: list[uuid.UUID]
+    local_path: str = Field(..., min_length=1, max_length=1024)
+
+
+class BatchAssignResult(BaseModel):
+    success: int
+    failed: int
+    assignments: list[AgentCertAssignmentRead]
 
 
 # ---------------------------------------------------------------------------
