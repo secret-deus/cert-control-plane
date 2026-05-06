@@ -1,9 +1,11 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/viper"
@@ -43,8 +45,8 @@ type Config struct {
 
 // CertTableEntry is one entry in the cert table
 type CertTableEntry struct {
-	LocalPath string `mapstructure:"local_path"`
-	CertName  string `mapstructure:"cert_name"`
+	LocalPath string `mapstructure:"local_path" json:"local_path"`
+	CertName  string `mapstructure:"cert_name" json:"cert_name,omitempty"`
 }
 
 // DefaultConfig returns default configuration
@@ -72,6 +74,22 @@ func Load(configPath string) (*Config, error) {
 
 	viper.SetEnvPrefix("CERT_AGENT")
 	viper.AutomaticEnv()
+	for _, key := range []string{
+		"cp_url",
+		"name",
+		"agent_token",
+		"auto_detect",
+		"insecure_skip_verify",
+		"state_dir",
+		"nginx_cert_dir",
+		"nginx_reload_cmd",
+		"heartbeat_interval",
+		"poll_interval",
+	} {
+		if err := viper.BindEnv(key); err != nil {
+			return nil, fmt.Errorf("failed to bind env %s: %w", key, err)
+		}
+	}
 
 	if configPath != "" {
 		viper.SetConfigFile(configPath)
@@ -90,6 +108,13 @@ func Load(configPath string) (*Config, error) {
 
 	if err := viper.Unmarshal(cfg); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+	}
+	if raw := strings.TrimSpace(os.Getenv("CERT_AGENT_CERT_TABLE")); raw != "" {
+		var certTable []CertTableEntry
+		if err := json.Unmarshal([]byte(raw), &certTable); err != nil {
+			return nil, fmt.Errorf("failed to parse CERT_AGENT_CERT_TABLE: %w", err)
+		}
+		cfg.CertTable = certTable
 	}
 
 	if err := cfg.Validate(); err != nil {

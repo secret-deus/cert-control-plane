@@ -5,5 +5,7 @@ services:
       dockerfile: tools/agent-smoke/edge-node-go.Dockerfile
     environment:
       EDGE_AGENT_CMD: "/usr/local/bin/cert-agent"
+      CERT_AGENT_HEARTBEAT_INTERVAL: "2s"
+      CERT_AGENT_POLL_INTERVAL: "2s"
     ports:
       - "9445:9443"

@@ -6,7 +6,7 @@ RUN apt-get update \
 
 WORKDIR /workspace
 
-COPY agent/ /workspace/agent/
+COPY client/agent/ /workspace/agent/
 RUN pip install --no-cache-dir -e /workspace/agent
 
 COPY tools/agent-smoke/edge-nginx.conf /etc/nginx/nginx.conf

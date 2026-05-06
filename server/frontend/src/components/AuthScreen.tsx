@@ -60,7 +60,7 @@ export default function AuthScreen({ onLogin }: AuthScreenProps) {
           </div>
 
           <div className="mt-6 rounded-[20px] border border-white/8 bg-white/[0.02] px-4 py-3 text-sm text-white/70">
-            使用 Admin API Key 登录后进入控制台。该入口只用于控制平面，Agent API 使用独立鉴权通道。
+            使用 Admin API Key 登录后进入控制台。Agent API 与控制台共用服务端口，但使用独立鉴权通道。
           </div>
 
           <div className="mt-6 overflow-hidden rounded-[20px] border border-white/8 bg-white/[0.02]">
@@ -87,7 +87,7 @@ export default function AuthScreen({ onLogin }: AuthScreenProps) {
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-white/50">Agent API</span>
-                  <span className="text-white">8081</span>
+                  <span className="text-white">8080 /api/agent</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-white/50">认证方式</span>

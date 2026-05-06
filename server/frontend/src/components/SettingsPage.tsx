@@ -8,7 +8,7 @@ const settingGroups = [
     description: '控制谁可以进入控制台、谁可以接入 Agent 通道。',
     items: [
       { label: 'Admin API Key', value: '环境变量管理', note: '控制平面通过 `X-Admin-API-Key` 鉴权。' },
-      { label: 'Agent Token', value: '独立通道', note: 'Agent API 使用单独鉴权，不与控制台登录混用。' },
+      { label: 'Agent Token', value: '路径隔离', note: 'Agent API 使用独立 token，不与控制台登录混用。' },
       { label: 'TOFU 审批', value: '人工确认', note: '新 Agent 首次注册后需要审批通过。' },
     ],
   },
@@ -40,9 +40,9 @@ const settingGroups = [
     tone: 'border-white/8 bg-white/[0.03] text-white',
     description: '区分本地开发、生产部署和 API 入口路由。',
     items: [
-      { label: '本地开发', value: '单端口模式', note: '本地默认走单端口，不经过 nginx。' },
-      { label: '生产部署', value: '双入口模式', note: '控制平面与 Agent API 在生产环境分离入口。' },
-      { label: '前端代理', value: '/api', note: 'Vite 开发代理默认转发到后端控制面。' },
+      { label: '本地开发', value: '单端口模式', note: 'Dashboard、Control API、Agent API 共用后端端口。' },
+      { label: '生产部署', value: '单入口模式', note: 'TLS 和来源限制由外部网关或负载均衡承担。' },
+      { label: '前端代理', value: '/api', note: 'Vite 开发代理默认转发到本地 FastAPI。' },
     ],
   },
 ];

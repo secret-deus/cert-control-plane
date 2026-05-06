@@ -8,22 +8,13 @@
 
 ```
                     ┌─────────────────┐
-                    │   Load Balancer │
-                    │   (HTTPS 443)   │
+                    │ External Gateway│
+                    │ HTTPS / WAF / ACL│
                     └────────┬────────┘
-                             │
-              ┌──────────────┼──────────────┐
-              │              │              │
-        ┌─────▼──────┐ ┌────▼─────┐ ┌──────▼─────┐
-        │  Nginx #1  │ │ Nginx #2 │ │   Nginx #N │
-        │  (Port 443)│ │(Port 443)│ │ (Port 443) │
-        └─────┬──────┘ └────┬─────┘ └──────┬─────┘
-              │              │              │
-              └──────────────┼──────────────┘
                              │
                     ┌────────▼────────┐
                     │   Control Plane │
-                    │   (FastAPI)     │
+                    │ FastAPI :8000   │
                     └────────┬────────┘
                              │
                     ┌────────▼────────┐
@@ -39,7 +30,7 @@ Agent Nodes (独立部署):
         │                │
         └────────┬───────┘
                  │
-        Agent API (Port 8443)
+        /api/agent/* over the same service URL
                  │
         ┌────────▼────────┐
         │  Control Plane  │
@@ -48,10 +39,11 @@ Agent Nodes (独立部署):
 
 ### 关键设计决策
 
-1. **端口隔离**: Control API (443) 与 Agent API (8443) 物理隔离，降低攻击面
+1. **单端口应用**: Dashboard、Control API 与 Agent API 由同一个 FastAPI 进程提供，依靠路径和认证头隔离
 2. **数据库高可用**: PostgreSQL 配置流复制或使用托管服务 (RDS/Cloud SQL)
 3. **证书存储**: 控制平面加密存储私钥 (Fernet)，Agent 本地明文存储
 4. **Agent 认证**: 基于 `agent_token`，不依赖 mTLS，降低运维复杂度
+5. **外部访问控制**: TLS、来源 IP 限制、WAF、限流等能力放在外部网关或负载均衡器
 
 ## 环境准备
 
@@ -68,14 +60,14 @@ Agent Nodes (独立部署):
 
 - Docker 24.0+ 和 Docker Compose Plugin
 - 或 Python 3.11+ 和 PostgreSQL 14+
-- Nginx 1.24+ (用于端口隔离和 TLS 终止)
+- 外部 TLS 终止层（负载均衡器、网关或反向代理）
 
 ### 网络要求
 
 | 端口 | 来源 | 用途 |
 |------|------|------|
-| 443/TCP | 运维网络、办公网络 | Control API、Dashboard |
-| 8443/TCP | Agent 节点网络 | Agent API |
+| 443/TCP | 运维网络、办公网络、Agent 节点网络 | 外部 HTTPS 入口 |
+| 8000/TCP | 外部网关或内网调用方 | FastAPI 应用入口 |
 | 5432/TCP | 应用服务器 | PostgreSQL (仅内网) |
 
 ## 配置清单
@@ -150,26 +142,17 @@ cp .env.example .env
 # 编辑 .env 填入生产配置
 ```
 
-2. **准备 TLS 证书**
-
-```bash
-# 使用内部 CA 或 Let's Encrypt
-# 将证书放在 certs/ 目录
-cp /path/to/server.crt certs/
-cp /path/to/server.key certs/
-```
-
-3. **启动服务**
+2. **启动服务**
 
 ```bash
 docker compose up -d
 
 # 验证服务状态
 docker compose ps
-curl -k https://localhost:443/healthz
+curl http://localhost:8080/healthz
 ```
 
-4. **数据库迁移**
+3. **数据库迁移**
 
 ```bash
 docker compose exec app alembic upgrade head
@@ -205,41 +188,15 @@ alembic upgrade head
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
 ```
 
-3. **配置 Nginx 反向代理**
+3. **接入外部 HTTPS 入口**
 
-参考 `nginx/nginx.conf`，关键配置:
+生产环境建议由外部网关、负载均衡器或反向代理终止 TLS，并转发到应用的 `http://127.0.0.1:8000`。
 
-```nginx
-# Control API (443)
-server {
-    listen 443 ssl;
-    server_name cp.example.com;
+推荐访问控制：
 
-    ssl_certificate /etc/nginx/certs/server.crt;
-    ssl_certificate_key /etc/nginx/certs/server.key;
-
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-}
-
-# Agent API (8443)
-server {
-    listen 8443 ssl;
-    server_name agent.example.com;
-
-    ssl_certificate /etc/nginx/certs/server.crt;
-    ssl_certificate_key /etc/nginx/certs/server.key;
-
-    location /api/agent/ {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-}
-```
+- 运维网络可访问 `/dashboard`、`/docs` 和 `/api/control/*`
+- Agent 节点网络可访问 `/api/agent/*`
+- `/api/agent/register` 建议配合来源限制、限流和审计使用
 
 ## Agent 部署
 
@@ -257,7 +214,7 @@ sudo mv cert-agent /usr/local/bin/
 创建配置文件 `/etc/cert-agent/agent.toml`:
 
 ```toml
-cp_url = "https://cp.example.com:8443"
+cp_url = "https://cp.example.com"
 name = "web-server-01"
 state_dir = "/var/lib/cert-agent"
 heartbeat_interval = 30
@@ -405,7 +362,7 @@ Dashboard 自动显示:
 
 1. 检查网络连通性:
 ```bash
-curl -k https://cp.example.com:8443/healthz
+curl -k https://cp.example.com/healthz
 ```
 
 2. 检查 Agent 日志:
@@ -433,7 +390,7 @@ ls -la /etc/nginx/ssl/
 
 3. 手动触发心跳:
 ```bash
-curl -k -X POST https://cp.example.com:8443/api/agent/heartbeat \
+curl -k -X POST https://cp.example.com/api/agent/heartbeat \
   -H "X-Agent-Token: your-agent-token"
 ```
 
@@ -529,7 +486,7 @@ python3 -m pytest tests/ -q
 
 1. **最小权限原则**: Agent API 仅对 Agent 节点开放，Control API 仅对运维网络开放
 2. **TLS 配置**: 使用 TLS 1.3，禁用弱密码套件
-3. **防火墙规则**: 严格限制 8443 端口的访问来源 IP
+3. **来源限制**: 在外部网关严格限制 `/api/agent/*` 的访问来源 IP
 
 ### 密钥管理
 

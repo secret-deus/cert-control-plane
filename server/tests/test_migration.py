@@ -8,9 +8,7 @@ Validates that:
 
 import importlib.util
 import pathlib
-import re
 
-import pytest
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
 VERSIONS_DIR = PROJECT_ROOT / "alembic" / "versions"

@@ -1,9 +1,9 @@
 FROM golang:1.21 AS builder
 
 WORKDIR /src/agent-go
-COPY agent-go/go.mod agent-go/go.sum ./
+COPY client/agent-go/go.mod client/agent-go/go.sum ./
 RUN go mod download
-COPY agent-go/ ./
+COPY client/agent-go/ ./
 
 ARG TARGETOS=linux
 ARG TARGETARCH

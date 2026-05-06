@@ -177,11 +177,11 @@ export default function Layout({ onLogout }: LayoutProps) {
         <div className="rounded-[18px] border border-white/8 bg-white/[0.02] px-4 py-4 text-xs text-white/70">
           <div className="flex items-center justify-between">
             <span>入口模式</span>
-            <span className="font-medium text-white">Control Plane</span>
+            <span className="font-medium text-white">单端口</span>
           </div>
           <div className="mt-2 flex items-center justify-between">
             <span>Agent API</span>
-            <span className="font-medium text-white">独立鉴权</span>
+            <span className="font-medium text-white">/api/agent</span>
           </div>
         </div>
 

@@ -13,7 +13,7 @@ DEFAULT_NGINX_CERT_DIR = Path("/etc/nginx/certs")
 @dataclass
 class AgentConfig:
     # Control plane connection
-    control_plane_url: str = ""   # e.g. https://cp.example.com:8000
+    control_plane_url: str = ""   # e.g. https://cp.example.com
 
     # Agent identity
     agent_name: str = ""          # Must be unique across agents

@@ -34,7 +34,7 @@ Write-Host ""
 
 # ── 交互式采集参数 ──
 if (-not $CpUrl) {
-    $CpUrl = Read-Host "请输入控制面板地址 (如 https://cp.example.com:8443)"
+    $CpUrl = Read-Host "请输入控制面板地址 (如 https://cp.example.com)"
 }
 if (-not $AgentName) {
     $AgentName = Read-Host "请输入 Agent 名称"

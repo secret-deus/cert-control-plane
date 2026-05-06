@@ -3,7 +3,7 @@
 # cert-agent 一键安装脚本 (Linux)
 # 用法: sudo bash agent/scripts/install.sh
 #   或: sudo bash agent/scripts/install.sh \
-#         --cp-url https://cp.example.com:8443 \
+#         --cp-url https://cp.example.com \
 #         --name web-node-01
 # ============================================================
 set -euo pipefail
@@ -42,7 +42,7 @@ echo ""
 
 # ── 交互式采集缺失参数 ──
 if [ -z "$CP_URL" ]; then
-    read -rp "请输入控制面板地址 (如 https://cp.example.com:8443): " CP_URL
+    read -rp "请输入控制面板地址 (如 https://cp.example.com): " CP_URL
 fi
 if [ -z "$AGENT_NAME" ]; then
     read -rp "请输入 Agent 名称: " AGENT_NAME

@@ -4,11 +4,9 @@ Verifies that every action= string emitted in the codebase appears in the
 documented action list of the GET /audit endpoint description.
 """
 
-import ast
 import pathlib
 import re
 
-import pytest
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
 

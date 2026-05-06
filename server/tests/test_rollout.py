@@ -21,7 +21,6 @@ from app.models import (
 )
 from app.orchestrator.rollout import (
     _advance_rollout,
-    _is_batch_complete,
     _timeout_stale_items,
     create_rollout,
     pause_rollout,

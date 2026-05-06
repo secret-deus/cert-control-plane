@@ -120,7 +120,7 @@ def create_app() -> FastAPI:
     from fastapi.responses import HTMLResponse
 
     static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
-    
+
     # Mount static files *if* they exist (production mode)
     if os.path.isdir(static_dir):
         assets_dir = os.path.join(static_dir, "assets")

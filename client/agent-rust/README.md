@@ -36,7 +36,7 @@ Create a configuration file at `/etc/cert-agent/agent.toml`:
 
 ```toml
 # Control plane URL (required)
-cp_url = "https://cp.example.com:8443"
+cp_url = "https://cp.example.com"
 
 # Unique agent name (required)
 name = "web-server-01"
@@ -99,7 +99,7 @@ sudo systemctl status cert-agent
 All configuration options can be set via environment variables with the `CERT_AGENT__` prefix:
 
 ```bash
-export CERT_AGENT__CP_URL="https://cp.example.com:8443"
+export CERT_AGENT__CP_URL="https://cp.example.com"
 export CERT_AGENT__NAME="web-server-01"
 export CERT_AGENT__HEARTBEAT_INTERVAL=60
 ```
@@ -116,7 +116,7 @@ The agent searches for configuration files in this order:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `cp_url` | string | Control plane URL (e.g., `https://cp.example.com:8443`) |
+| `cp_url` | string | Control plane URL (e.g., `https://cp.example.com`) |
 | `name` | string | Unique agent name |
 
 ### Optional Fields
@@ -272,7 +272,7 @@ ls -la /var/lib/cert-agent/
 
 2. Verify required fields are set:
    ```bash
-   CERT_AGENT__CP_URL=https://cp.example.com:8443 \
+   CERT_AGENT__CP_URL=https://cp.example.com \
    CERT_AGENT__NAME=test-agent \
    /usr/local/bin/cert-agent
    ```
@@ -288,7 +288,7 @@ If registration is pending too long:
 
 1. Check control plane is accessible:
    ```bash
-   curl -k https://cp.example.com:8443/healthz
+   curl -k https://cp.example.com/healthz
    ```
 
 2. Verify agent appears in control plane dashboard (pending approval)
@@ -311,7 +311,7 @@ If registration is pending too long:
 
 4. Manually trigger fetch:
    ```bash
-   curl -k -X POST https://cp.example.com:8443/api/agent/fetch-certs \
+   curl -k -X POST https://cp.example.com/api/agent/fetch-certs \
      -H "X-Agent-Token: <token>" \
      -H "Content-Type: application/json" \
      -d '{"certs": [{"local_path": "/etc/nginx/ssl/test.crt"}]}'

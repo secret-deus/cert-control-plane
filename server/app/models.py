@@ -92,26 +92,26 @@ class ExternalCertificate(Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
-    
+
     # Certificate data
     cert_pem: Mapped[str] = mapped_column(Text, nullable=False)
     key_pem_encrypted: Mapped[str] = mapped_column(Text, nullable=False)  # Fernet encrypted
     chain_pem: Mapped[str | None] = mapped_column(Text)
-    
+
     # Parsed from certificate
     subject_cn: Mapped[str] = mapped_column(String(255), nullable=False)
     serial_hex: Mapped[str] = mapped_column(String(40), unique=True, nullable=False)
     not_before: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     not_after: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    
+
     # Provider info
     provider: Mapped[str | None] = mapped_column(String(100))  # aliyun, letsencrypt, etc.
     external_id: Mapped[str | None] = mapped_column(String(255))  # Provider's cert ID
-    
+
     # Status
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     auto_renew: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

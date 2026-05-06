@@ -255,7 +255,7 @@ class TestRegisterStatus:
         client._transport.app.dependency_overrides[get_db] = lambda: mock_db
 
         resp = await client.get(
-            f"/api/agent/register/status",
+            "/api/agent/register/status",
             params={"agent_id": str(agent.id), "fingerprint": agent.fingerprint},
         )
 

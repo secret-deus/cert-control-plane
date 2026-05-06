@@ -37,7 +37,7 @@ async def get_summary(db: AsyncSession = Depends(get_db)):
             .where(Agent.status == AgentStatus.PENDING_APPROVAL)
         )
     ).scalar_one()
-    
+
     # Cert stats
     certs_total = (
         await db.execute(
@@ -46,7 +46,7 @@ async def get_summary(db: AsyncSession = Depends(get_db)):
             .where(Certificate.is_current.is_(True), Certificate.revoked_at.is_(None))
         )
     ).scalar_one()
-    
+
     soon = datetime.now(tz=timezone.utc) + timedelta(days=30)
     certs_expiring_soon = (
         await db.execute(
@@ -138,7 +138,7 @@ async def get_certs_expiry(
         .order_by(Certificate.not_after.asc())
         .limit(50)
     )
-    
+
     return [
         {
             "id": c.id,
@@ -166,19 +166,19 @@ async def get_external_certs_expiry(
     """
     now = datetime.now(tz=timezone.utc)
     soon = now + timedelta(days=days)
-    
+
     result = await db.execute(
         select(ExternalCertificate)
         .where(
-            ExternalCertificate.is_active == True,
+            ExternalCertificate.is_active.is_(True),
             ExternalCertificate.not_after <= soon,
         )
         .order_by(ExternalCertificate.not_after.asc())
     )
-    
+
     certs = result.scalars().all()
     items = []
-    
+
     for cert in certs:
         days_remaining = (cert.not_after - now).days
         if days_remaining < 0:
@@ -189,7 +189,7 @@ async def get_external_certs_expiry(
             urgency = "warning"
         else:
             urgency = "notice"
-        
+
         items.append({
             "id": str(cert.id),
             "name": cert.name,
@@ -200,7 +200,7 @@ async def get_external_certs_expiry(
             "provider": cert.provider,
             "urgency": urgency,
         })
-    
+
     return items
 
 
@@ -212,7 +212,7 @@ async def get_events_timeline(db: AsyncSession = Depends(get_db)):
         .order_by(AuditLog.created_at.desc())
         .limit(50)
     )
-    
+
     return [
         {
             "id": log.id,
@@ -237,33 +237,31 @@ async def get_cert_alerts(db: AsyncSession = Depends(get_db)):
     返回分级统计：expired, critical, warning, notice
     """
     now = datetime.now(tz=timezone.utc)
-    
+
     # Define time thresholds
-    critical_threshold = now + timedelta(days=7)
-    warning_threshold = now + timedelta(days=14)
     notice_threshold = now + timedelta(days=30)
-    
+
     # Query external certificates
     ext_result = await db.execute(
         select(ExternalCertificate)
         .where(
-            ExternalCertificate.is_active == True,
+            ExternalCertificate.is_active.is_(True),
             ExternalCertificate.not_after <= notice_threshold,
         )
     )
     ext_certs = ext_result.scalars().all()
-    
+
     # Query agent certificates
     agent_result = await db.execute(
         select(Certificate)
         .where(
-            Certificate.is_current == True,
+            Certificate.is_current.is_(True),
             Certificate.revoked_at.is_(None),
             Certificate.not_after <= notice_threshold,
         )
     )
     agent_certs = agent_result.scalars().all()
-    
+
     # Categorize external certs
     ext_alerts = {"expired": [], "critical": [], "warning": [], "notice": []}
     for cert in ext_certs:
@@ -286,7 +284,7 @@ async def get_cert_alerts(db: AsyncSession = Depends(get_db)):
             ext_alerts["warning"].append(alert)
         else:
             ext_alerts["notice"].append(alert)
-    
+
     # Categorize agent certs
     agent_alerts = {"expired": [], "critical": [], "warning": [], "notice": []}
     for cert in agent_certs:
@@ -308,7 +306,7 @@ async def get_cert_alerts(db: AsyncSession = Depends(get_db)):
             agent_alerts["warning"].append(alert)
         else:
             agent_alerts["notice"].append(alert)
-    
+
     return {
         "summary": {
             "external": {

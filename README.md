@@ -12,14 +12,15 @@ TLS 证书生命周期管理系统，当前基线为 **外部证书分发模式*
 
 | 端口 | 用途 | 认证方式 |
 |------|------|---------|
-| **8000** | Control API (运维管理) | `X-Admin-API-Key` 请求头 |
-| **8001** | Agent API (节点通信) | `X-Agent-Token` |
+| **8000** | 本地开发：Dashboard + Control API + Agent API | 路径级鉴权 |
+| **8080** | Docker Compose 主机入口 | 路径级鉴权 |
 
-- Control API 与 Agent API 通过不同端口隔离
+- Control API 位于 `/api/control/*`，使用 `X-Admin-API-Key`
+- Agent API 位于 `/api/agent/*`，使用 `X-Agent-Token`
 - Agent 首次调用 `/api/agent/register` 完成 TOFU 注册；如果管理员提前预创建了同名槽位，这一步会绑定首次上报的指纹
 - Agent 只有完成首次自注册并绑定指纹后，管理员才能审批并颁发 `agent_token`
 - Agent 随后通过 `heartbeat + fetch-certs` 维持在线状态并拉取证书更新
-- **HTTPS 支持**: 本系统默认以 HTTP 模式运行，可通过 nginx/HAProxy/负载均衡器反向代理实现 HTTPS
+- **HTTPS 支持**: 本系统默认以 HTTP 模式运行，可通过外部网关、负载均衡器或反向代理实现 HTTPS
 
 ## 技术栈
 
@@ -28,7 +29,6 @@ TLS 证书生命周期管理系统，当前基线为 **外部证书分发模式*
 - **迁移**: Alembic (async)
 - **调度**: APScheduler (Rollout 批次推进)
 - **加密**: cryptography (PEM 解析、Fernet 私钥加密存储)
-- **代理**: nginx (TLS 终止与端口隔离示例)
 - **Agent**: httpx + cryptography (运行在 nginx 节点)
 
 ## 快速开始
@@ -62,17 +62,18 @@ cp .env.example .env
 docker compose up -d --build
 
 # 3. 验证服务
-curl http://localhost:8000/healthz
-curl http://localhost:8001/api/agent/register
+curl http://localhost:8080/healthz
+curl -i http://localhost:8080/api/agent/register
 ```
 
 服务启动后：
-- Control API：`http://localhost:8000`
-- API 文档：`http://localhost:8000/docs`
-- 健康检查：`http://localhost:8000/healthz`
-- Agent API：`http://localhost:8001`
+- Dashboard：`http://localhost:8080/dashboard`
+- Control API：`http://localhost:8080/api/control`
+- API 文档：`http://localhost:8080/docs`
+- 健康检查：`http://localhost:8080/healthz`
+- Agent API：`http://localhost:8080/api/agent`
 
-> **注意**: 默认以 HTTP 模式运行，如需 HTTPS，请在前面放置 nginx/HAProxy 反向代理
+> **注意**: 默认以 HTTP 模式运行，如需 HTTPS，请在前面放置外部网关、负载均衡器或反向代理。
 
 ### 5. 访问 Web 仪表盘 (Dashboard)
 
@@ -85,7 +86,7 @@ curl http://localhost:8001/api/agent/register
    npm run build
    ```
    > FastAPI 会自动服务 `frontend/dist` 目录。
-2. 在浏览器中打开 `http://localhost:8000/dashboard`
+2. 在浏览器中打开 `http://localhost:8080/dashboard`
 3. 弹窗提示输入 `API Key`，请填入 `.env` 中的 `ADMIN_API_KEY` 以解锁面板。
 4. 面板每 30 秒自动刷新，展示 Agent 状态、证书过期警告与操作审计。
 
@@ -95,7 +96,7 @@ curl http://localhost:8001/api/agent/register
 
 ## API 文档
 
-启动服务后访问 `https://<host>/docs` (Swagger) 或 `https://<host>/redoc` (ReDoc)。
+启动服务后访问 `http://<host>/docs` (Swagger) 或 `http://<host>/redoc` (ReDoc)。生产环境如果接入外部 TLS，则使用对应的 `https://` 域名。
 
 ### Agent API
 
@@ -106,7 +107,7 @@ curl http://localhost:8001/api/agent/register
 | POST | `/api/agent/heartbeat` | 心跳上报 |
 | POST | `/api/agent/fetch-certs` | 上报本地证书有效期并拉取更新 |
 
-### Control API (端口 443, Admin API Key)
+### Control API (Admin API Key)
 
 **Agent 管理**
 
@@ -242,7 +243,7 @@ sudo bash agent/scripts/install.sh
 
 # 或非交互式
 sudo bash agent/scripts/install.sh \
-  --cp-url https://cp.example.com:8443 \
+  --cp-url https://cp.example.com \
   --name web-node-01
 ```
 
@@ -251,7 +252,7 @@ sudo bash agent/scripts/install.sh \
 .\agent\scripts\install.ps1
 
 # 或非交互式
-.\agent\scripts\install.ps1 -CpUrl "https://cp.example.com:8443" -AgentName "web-node-01"
+.\agent\scripts\install.ps1 -CpUrl "https://cp.example.com" -AgentName "web-node-01"
 ```
 
 脚本会自动：检查依赖 → 安装代码 → 安装 Python 包 → 生成配置 → 注册系统服务。
@@ -285,7 +286,7 @@ sudo systemctl enable --now cert-agent
 
 | 环境变量 | 必填 | 默认值 | 说明 |
 |---------|------|--------|------|
-| `CERT_AGENT_CP_URL` | 是 | - | 控制面板地址 (如 `https://cp.example.com:8443`) |
+| `CERT_AGENT_CP_URL` | 是 | - | 控制面板地址 (如 `https://cp.example.com` 或 `http://localhost:8080`) |
 | `CERT_AGENT_NAME` | 是 | - | Agent 名称 |
 | `CERT_AGENT_TOKEN` | 否 | - | 已知 `agent_token` 时可直接写入，通常首次无需配置 |
 | `CERT_AGENT_CERT_TABLE` | 否 | `[]` | 证书检查表，JSON 数组，元素含 `local_path` |
@@ -371,8 +372,6 @@ cert-control-plane/
 │   └── versions/
 │       ├── 001_initial.py      # 初始 schema
 │       └── 002_serial_hex_compat.py  # 旧版 DB 兼容迁移
-├── nginx/
-│   └── nginx.conf              # 双端口反向代理示例
 ├── scripts/
 │   └── init_ca.py              # CA + 服务端证书生成工具
 ├── docker-compose.yml
@@ -387,7 +386,7 @@ cert-control-plane/
 - **鉴权分离**: Control API 使用 `X-Admin-API-Key`，Agent API 使用 `X-Agent-Token`
 - **TOFU 注册**: Agent 首次只上报名称和公钥指纹，必须经管理员审批后才能进入正式通信
 - **密钥加密存储**: 上传的外部证书私钥使用 Fernet 加密后存入数据库
-- **端口隔离**: 推荐将 Control API 与 Agent API 放在不同入口，降低误用风险
+- **路径与鉴权隔离**: Control API 与 Agent API 共用服务端口，但使用不同路径、不同认证头；生产环境应在外部网关限制来源
 - **部署回滚**: Agent 覆盖本地证书文件前先备份，部署失败时自动恢复
 - **审计日志**: 所有写操作写入 `audit_logs`
 - **CORS 默认拒绝**: `cors_origins` 默认为空列表，必须显式配置
@@ -463,4 +462,4 @@ npm install
 npm run dev
 ```
 
-开发服务器会自动通过代理将 `/api/` 请求转发给运行在 `443` 端口的本地 FastAPI 实例（需确保证书忽略等设置妥当，见 `vite.config.ts`）。
+开发服务器会自动通过代理将 `/api/` 请求转发给运行在 `8000` 端口的本地 FastAPI 实例，见 `vite.config.ts`。

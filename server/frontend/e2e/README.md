@@ -104,4 +104,4 @@ Tests are automatically run in CI pipeline. See `.github/workflows/ci.yml` for c
 ## Environment Variables
 
 - `ADMIN_API_KEY`: Admin API key for authentication (defaults to 'test-admin-key')
-- `BASE_URL`: Base URL for tests (defaults to 'https://localhost:443')
+- `BASE_URL`: Base URL for tests (defaults to 'http://localhost:8080')

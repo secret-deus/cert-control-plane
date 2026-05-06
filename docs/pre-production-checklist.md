@@ -27,7 +27,7 @@
 #### 静态分析
 - [ ] Lint 检查通过
   ```bash
-  ruff check app/ agent/ tests/
+  ruff check app/ tests/ --select E,F,W,B,S --ignore E501,S101,B008,S105,S106,S107
   ```
 - [ ] 类型检查通过（如使用）
 - [ ] 安全扫描无高危问题
@@ -80,8 +80,8 @@
 - [ ] 私钥权限正确 (0600)
 
 #### 防火墙规则
-- [ ] 443 端口开放（Control API）
-- [ ] 8443 端口开放（Agent API）
+- [ ] 443 端口开放（外部 HTTPS 入口，如使用）
+- [ ] 8000 端口仅对外部网关或内网调用方开放
 - [ ] 5432 端口访问受限（仅应用服务器）
 - [ ] 其他端口已关闭
 
@@ -111,11 +111,11 @@
   sudo journalctl -u cert-control-plane -f
   ```
 
-#### Nginx 配置
-- [ ] Nginx 配置文件正确
-- [ ] SSL 配置正确
-- [ ] 端口隔离正确
-- [ ] 代理配置正确
+#### 外部入口配置
+- [ ] TLS 终止配置正确
+- [ ] `/api/control/*` 访问来源受限
+- [ ] `/api/agent/*` 访问来源受限
+- [ ] 外部网关正确转发到应用 `8000`
 
 #### Agent 配置
 - [ ] Agent 二进制已部署
@@ -128,7 +128,7 @@
 #### 健康检查
 - [ ] `/healthz` 端点可访问
   ```bash
-  curl -k https://your-domain:443/healthz
+  curl -k https://your-domain/healthz
   ```
 - [ ] 数据库健康检查正常
 - [ ] 服务响应正常
@@ -301,7 +301,7 @@ npm run build
 sudo systemctl start cert-control-plane
 
 # 8. 验证服务
-curl -k https://localhost:443/healthz
+curl http://localhost:8000/healthz
 ```
 
 #### 3. 验证阶段
@@ -313,14 +313,14 @@ sudo systemctl status cert-control-plane
 sudo journalctl -u cert-control-plane -n 100
 
 # 3. 测试 API
-curl -k https://localhost:443/api/control/dashboard/summary \
+curl -k http://localhost:8000/api/control/dashboard/summary \
   -H "X-Admin-API-Key: your-key"
 
 # 4. 测试 Dashboard
 open https://your-domain/dashboard
 
 # 5. 检查 Agent 连接
-curl -k https://localhost:8443/healthz
+curl -k http://localhost:8000/healthz
 ```
 
 #### 4. 监控阶段
@@ -361,7 +361,7 @@ psql $DATABASE_URL < backup_before_deploy_TIMESTAMP.sql
 sudo systemctl start cert-control-plane
 
 # 6. 验证
-curl -k https://localhost:443/healthz
+curl -k https://localhost/healthz
 ```
 
 ### 回滚检查

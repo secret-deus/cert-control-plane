@@ -18,17 +18,16 @@
   - [ ] 支持 token 撤销
   - [ ] Token 有过期机制（可选）
 
-### 端口隔离
+### 路径与来源隔离
 
-- [ ] **443 端口（Control API）**
+- [ ] **`/api/control/*`（Control API）**
   - [ ] 仅限运维网络访问
   - [ ] 需要 Admin API Key
-  - [ ] 禁止访问 Agent API 端点
 
-- [ ] **8443 端口（Agent API）**
+- [ ] **`/api/agent/*`（Agent API）**
   - [ ] 仅限 Agent 节点 IP 访问
   - [ ] 需要 Agent Token
-  - [ ] 禁止访问 Control API 端点
+  - [ ] 注册端点配合来源限制、限流和审计
 
 ### 访问控制
 
@@ -145,8 +144,8 @@
 
 - [ ] **入站规则**
   ```
-  443/TCP  - 运维网络 -> 控制平面
-  8443/TCP - Agent 节点 -> 控制平面
+  443/TCP  - 运维网络 / Agent 节点 -> 外部 HTTPS 入口
+  8000/TCP - 外部网关 -> FastAPI 应用
   22/TCP   - 管理网络 -> 所有服务器
   ```
 

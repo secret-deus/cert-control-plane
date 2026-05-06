@@ -307,8 +307,8 @@ async def register_status(
     import uuid as _uuid
     try:
         agent_uuid = _uuid.UUID(agent_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid agent_id format")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="Invalid agent_id format") from e
 
     agent = await db.get(Agent, agent_uuid)
     if not agent:

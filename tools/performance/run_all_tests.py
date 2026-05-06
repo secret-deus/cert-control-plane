@@ -85,7 +85,7 @@ def main():
     )
     parser.add_argument(
         "--host",
-        default="https://localhost:443",
+        default="http://localhost:8080",
         help="Target host URL"
     )
     parser.add_argument(

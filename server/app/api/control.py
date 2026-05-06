@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.audit import write_audit
-from app.core.crypto import encrypt_key, decrypt_key
+from app.core.crypto import encrypt_key
 from app.core.security import generate_agent_token, verify_admin_key
 from app.database import get_db
 from app.models import (
@@ -137,7 +137,7 @@ async def list_agents(
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
 ):
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timedelta, timezone
 
     base = select(Agent)
     if status_filter:
@@ -226,7 +226,7 @@ async def get_agent_detail(
     agent_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timezone
 
     agent = await db.get(Agent, agent_id)
     if not agent:
@@ -257,7 +257,6 @@ async def get_agent_detail(
 
     certs = []
     expiring_soon_count = 0
-    soon = now + timedelta(days=30)
 
     for assignment, ext_cert in cert_result.all():
         days_remaining = (ext_cert.not_after - now).days
@@ -442,8 +441,8 @@ async def upload_external_cert(
 
     try:
         cert = x509.load_pem_x509_certificate(body.cert_pem.encode())
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid certificate PEM: {e}")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid certificate PEM: {e}") from e
 
     cn_attrs = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
     if not cn_attrs:
@@ -464,7 +463,7 @@ async def upload_external_cert(
 
     existing_by_cn = await db.execute(
         select(ExternalCertificate)
-        .where(ExternalCertificate.subject_cn == subject_cn, ExternalCertificate.is_active == True)
+        .where(ExternalCertificate.subject_cn == subject_cn, ExternalCertificate.is_active.is_(True))
         .order_by(ExternalCertificate.not_after.desc())
         .limit(1)
     )
@@ -477,7 +476,7 @@ async def upload_external_cert(
         other_same_cn = await db.execute(
             select(ExternalCertificate).where(
                 ExternalCertificate.subject_cn == subject_cn,
-                ExternalCertificate.is_active == True,
+                ExternalCertificate.is_active.is_(True),
                 ExternalCertificate.id != old_cert.id,
             )
         )
@@ -1192,7 +1191,7 @@ async def pause_rollout_endpoint(
     try:
         rollout = await pause_rollout(db, rollout, actor=_actor(request))
     except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        raise HTTPException(status_code=409, detail=str(e)) from e
     await db.commit()
     await db.refresh(rollout)
     return rollout
@@ -1215,7 +1214,7 @@ async def resume_rollout_endpoint(
     try:
         rollout = await resume_rollout(db, rollout, actor=_actor(request))
     except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        raise HTTPException(status_code=409, detail=str(e)) from e
     await db.commit()
     await db.refresh(rollout)
     return rollout
@@ -1238,7 +1237,7 @@ async def rollback_rollout_endpoint(
     try:
         rollout = await rollback_rollout(db, rollout, actor=_actor(request))
     except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        raise HTTPException(status_code=409, detail=str(e)) from e
     await db.commit()
     await db.refresh(rollout)
     return rollout
@@ -1259,9 +1258,11 @@ async def rollback_rollout_endpoint(
 
 **覆盖的操作：**
 `agent_created` / `agent_registered` / `agent_approved` / `agent_rejected` / `agent_deleted` /
-`cert_assigned` / `cert_assignment_deleted` /
-`external_cert_uploaded` / `external_cert_uploaded_from_archive` / `external_cert_deleted` /
-`agent_fetch_certs` /
+`cert_assigned` / `cert_batch_deployed` / `cert_assignment_deleted` /
+`external_cert_uploaded` / `external_cert_uploaded_auto_assigned` /
+`external_cert_renewed` / `external_cert_uploaded_from_archive` /
+`external_cert_renewed_from_archive` / `external_cert_deleted` /
+`agent_fetch_certs` / `agent_report_certs` /
 `rollout_created` / `rollout_started` / `rollout_batch_started` /
 `rollout_paused` / `rollout_resumed` /
 `rollout_completed` / `rollout_failed` / `rollout_rolled_back` / `cert_rolled_back`

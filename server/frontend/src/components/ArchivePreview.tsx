@@ -1,6 +1,8 @@
 import { ShieldCheck, Calendar, Hash, Globe, CheckCircle2 } from 'lucide-react';
 import { format } from 'date-fns';
 
+const RENDER_BASELINE_MS = Date.now();
+
 interface ArchivePreviewData {
   id: string;
   name: string;
@@ -21,9 +23,7 @@ interface ArchivePreviewProps {
 }
 
 export default function ArchivePreview({ data }: ArchivePreviewProps) {
-  const daysRemaining = Math.ceil(
-    (new Date(data.not_after).getTime() - Date.now()) / 86400000
-  );
+  const daysRemaining = Math.ceil((new Date(data.not_after).getTime() - RENDER_BASELINE_MS) / 86400000);
 
   const getStatusLabel = () => {
     if (daysRemaining < 0) return { label: '已过期', tone: 'border-[rgba(255,153,92,0.18)] bg-[rgba(255,153,92,0.10)] text-[#ffbf8f]' };

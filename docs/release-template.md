@@ -140,7 +140,7 @@ sudo mv cert-agent-linux-amd64 /usr/local/bin/cert-agent
 # Configure
 sudo mkdir -p /etc/cert-agent
 sudo tee /etc/cert-agent/agent.toml > /dev/null <<EOF
-cp_url = "https://cp.example.com:8443"
+cp_url = "https://cp.example.com"
 name = "your-agent-name"
 EOF
 

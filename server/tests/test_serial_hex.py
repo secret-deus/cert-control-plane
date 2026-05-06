@@ -5,7 +5,7 @@ These tests cover the remaining crypto utilities.
 """
 
 import pytest
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 
 from app.core.crypto import decrypt_key, encrypt_key, make_fernet
 
@@ -26,7 +26,7 @@ class TestMakeFernet:
         assert isinstance(f, Fernet)
 
     def test_invalid_key_raises(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             make_fernet("not-a-valid-key")
 
 
@@ -65,5 +65,5 @@ class TestEncryptDecryptKey:
 
         encrypted = encrypt_key(data, fernet_key)
 
-        with pytest.raises(Exception):
+        with pytest.raises(InvalidToken):
             decrypt_key(encrypted, wrong_key)

@@ -25,9 +25,28 @@ compose_edge() {
 }
 
 echo "[1/4] rebuilding control plane and edge node"
-compose_base up -d --build app nginx
+compose_base up -d --build db app
+for attempt in $(seq 1 60); do
+  if compose_base exec -T app python - <<'PY' >/dev/null 2>&1
+import urllib.request
 
-echo "[2/4] resetting stale smoke agent identity"
+with urllib.request.urlopen("http://localhost:8000/healthz", timeout=2) as resp:
+    raise SystemExit(0 if resp.status == 200 else 1)
+PY
+  then
+    break
+  fi
+  if [ "$attempt" -eq 60 ]; then
+    echo "control plane did not become healthy" >&2
+    compose_base logs app --tail=120 >&2 || true
+    exit 1
+  fi
+  sleep 2
+done
+
+echo "[2/4] stopping stale edge node and resetting smoke agent identity"
+compose_edge rm -sf "$EDGE_SERVICE" >/dev/null 2>&1 || true
+
 compose_base exec -T app env SMOKE_AGENT_NAME="$AGENT_NAME" python - <<'PY'
 import json
 import os
@@ -49,17 +68,24 @@ def request(method: str, path: str) -> dict:
         return json.loads(body) if body else {}
 
 
-agents = request("GET", "/agents").get("items", [])
-for agent in agents:
-    if agent["name"] == agent_name:
-        request("DELETE", f"/agents/{agent['id']}")
-        print(f"deleted stale agent {agent_name} ({agent['id']})")
+deleted = 0
+skip = 0
+limit = 500
+while True:
+    agents = request("GET", f"/agents?skip={skip}&limit={limit}").get("items", [])
+    for agent in agents:
+        if agent["name"] == agent_name:
+            request("DELETE", f"/agents/{agent['id']}")
+            print(f"deleted stale agent {agent_name} ({agent['id']})")
+            deleted += 1
+    if len(agents) < limit:
         break
-else:
+    skip += limit
+
+if deleted == 0:
     print(f"no stale agent named {agent_name}")
 PY
 
-compose_edge rm -sf "$EDGE_SERVICE" >/dev/null 2>&1 || true
 compose_edge up -d --build "$EDGE_SERVICE"
 
 echo "[3/4] approving agent, generating cert, uploading and assigning"
@@ -159,7 +185,7 @@ PY
 )
 
 printf '%s\n' "$RESULT"
-SERIAL_HEX=$(printf '%s\n' "$RESULT" | sed -n 's/^SERIAL_HEX=//p' | tr 'A-Z' 'a-z')
+SERIAL_HEX=$(printf '%s\n' "$RESULT" | sed -n 's/^SERIAL_HEX=//p' | tr 'A-Z' 'a-z' | sed 's/^0*//')
 
 echo "[4/4] waiting for agent deployment"
 ATTEMPTS=0
@@ -170,7 +196,8 @@ while [ "$ATTEMPTS" -lt 30 ]; do
       'openssl x509 -in "$LOCAL_PATH" -noout -serial 2>/dev/null | cut -d= -f2' 2>/dev/null || true
   )
   CURRENT_SERIAL=$(printf '%s' "$CURRENT_SERIAL" \
-      | tr 'A-Z' 'a-z'
+      | tr 'A-Z' 'a-z' \
+      | sed 's/^0*//'
   )
   if [ -n "$CURRENT_SERIAL" ] && [ "$CURRENT_SERIAL" = "$SERIAL_HEX" ]; then
     break

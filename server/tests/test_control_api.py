@@ -27,8 +27,6 @@ from app.models import (
     Certificate,
     ExternalCertificate,
     Rollout,
-    RolloutItem,
-    RolloutItemStatus,
     RolloutStatus,
 )
 
@@ -184,7 +182,7 @@ class TestAgentsAPI:
         # expiring count query (for each agent)
         expiring_count_result = MagicMock()
         expiring_count_result.scalar_one.return_value = 0
-        
+
         mock_db.execute.side_effect = [count_result, list_result] + \
             [cert_count_result, expiring_count_result] * 3
 

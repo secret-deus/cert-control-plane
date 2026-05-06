@@ -2,7 +2,7 @@
 
 Usage:
     # Set environment variables (or write /etc/cert-agent/agent.conf):
-    export CERT_AGENT_CP_URL=https://cp.example.com:8443
+    export CERT_AGENT_CP_URL=https://cp.example.com
     export CERT_AGENT_NAME=web-node-01
     export CERT_AGENT_CERT_TABLE='[{"local_path":"/etc/nginx/certs/api.crt"}]'
 

@@ -39,7 +39,7 @@ check_endpoint() {
     local url=$1
     local name=$2
 
-    if curl -k -s -o /dev/null -w "%{http_code}" "$url" | grep -q "200\|401"; then
+    if curl -k -s -o /dev/null -w "%{http_code}" "$url" | grep -q "200\|401\|405"; then
         echo -e "${GREEN}✓${NC} $name 可访问"
         return 0
     else
@@ -105,8 +105,7 @@ echo "----------------"
 if docker ps &>/dev/null; then
     if docker ps | grep -q "cert-control-plane"; then
         echo -e "${GREEN}✓${NC} Docker 服务运行中"
-        check_port 443
-        check_port 8443
+        check_port 8080
     else
         echo -e "${YELLOW}!${NC} Docker 服务未启动"
         echo "  启动命令: docker-compose up -d"
@@ -118,14 +117,11 @@ fi
 echo ""
 echo "6️⃣ 检查 API 端点"
 echo "----------------"
-if check_port 443; then
-    check_endpoint "https://localhost:443/healthz" "健康检查"
-    check_endpoint "https://localhost:443/docs" "API 文档"
-    check_endpoint "https://localhost:443/dashboard" "Dashboard"
-fi
-
-if check_port 8443; then
-    check_endpoint "https://localhost:8443/api/agent/register" "Agent API"
+if check_port 8080; then
+    check_endpoint "http://localhost:8080/healthz" "健康检查"
+    check_endpoint "http://localhost:8080/docs" "API 文档"
+    check_endpoint "http://localhost:8080/dashboard" "Dashboard"
+    check_endpoint "http://localhost:8080/api/agent/register" "Agent API"
 fi
 
 echo ""
