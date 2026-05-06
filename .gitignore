@@ -33,6 +33,7 @@ certcp.db
 
 # Certificates & Keys (sensitive)
 certs/
+test-certs/
 *.pem
 *.key
 *.crt
@@ -46,6 +47,8 @@ certs/
 *.swo
 *~
 .qoder/
+.claude/
+.gemini/
 
 # OS
 .DS_Store
@@ -80,19 +83,30 @@ tmp/
 temp/
 *.tmp
 
-# Project docs (not tracked)
-PLAN.md
-docs/
+# Local agent/tooling guidance. Keep local, do not ship as project files.
+AGENTS.md
+agents.md
+agent.md
+CLAUDE.md
+GEMINI.md
+.agents/
+
+# Local operator smoke/seed helpers with machine-specific paths or secrets.
+scripts/gen-test-certs.py
+scripts/start-agents.sh
+scripts/upload-and-assign-certs.py
+scripts/upload-and-assign-certs.sh
 
 # Test results
 server/frontend/test-results/
 server/playwright-report/
 
 # Temporary files
-*.png
 setup_doc.png
-server/tests/
-PLAN.md
+
+# Test report screenshots are part of the verification artifact.
+!specs/screenshots/
+!specs/screenshots/*.png
 
 # Frontend build artifacts
 server/frontend-next/
