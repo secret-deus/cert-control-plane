@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cert-control-plane-config
+  labels:
+    app.kubernetes.io/name: cert-control-plane
+    app.kubernetes.io/part-of: cert-control-plane
+data:
+  CORS_ORIGINS: '["http://localhost:8080","http://localhost:18080","http://localhost:30080","http://127.0.0.1:18080","http://127.0.0.1:30080"]'
+  DEFAULT_BATCH_SIZE: "10"
+  DEV_MODE: "false"
+  LOG_FORMAT: "json"
+  LOG_LEVEL: "INFO"
+  ROLLOUT_INTERVAL_SECONDS: "30"
+  ROLLOUT_ITEM_TIMEOUT_MINUTES: "10"

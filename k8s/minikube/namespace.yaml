@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cert-control-plane
+  labels:
+    app.kubernetes.io/name: cert-control-plane
+    app.kubernetes.io/part-of: cert-control-plane
+    app.kubernetes.io/environment: minikube
