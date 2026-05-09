@@ -6,7 +6,18 @@ from typing import Generic, TypeVar
 
 from pydantic import BaseModel, Field
 
-from app.models import AgentStatus, RolloutItemStatus, RolloutStatus
+from app.models import (
+    AgentStatus,
+    KubernetesClusterConnectionStatus,
+    KubernetesSecretDryRunAction,
+    KubernetesSecretDryRunStatus,
+    KubernetesSecretHealthStatus,
+    KubernetesSecretLifecycleStatus,
+    KubernetesSecretOperationAction,
+    KubernetesSecretOperationStatus,
+    RolloutItemStatus,
+    RolloutStatus,
+)
 
 T = TypeVar("T")
 
@@ -294,6 +305,123 @@ class CertRead(CertSummary):
 
     cert_pem: str
     chain_pem: str | None
+
+
+# ---------------------------------------------------------------------------
+# Kubernetes Secret distribution
+# ---------------------------------------------------------------------------
+
+
+class KubernetesClusterCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    environment: str | None = Field(default=None, max_length=100)
+    kubeconfig: str = Field(..., min_length=1)
+    default_namespace: str | None = Field(default=None, max_length=255)
+
+
+class KubernetesClusterRead(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: uuid.UUID
+    name: str
+    environment: str | None
+    api_server: str
+    default_namespace: str | None
+    connection_status: KubernetesClusterConnectionStatus
+    last_checked_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class KubernetesClusterTestConnectionResponse(BaseModel):
+    cluster_id: uuid.UUID
+    status: KubernetesClusterConnectionStatus
+    version: str | None = None
+    default_namespace: str | None = None
+    message: str
+
+
+class KubernetesClusterCredentialsUpdate(BaseModel):
+    kubeconfig: str = Field(..., min_length=1)
+    default_namespace: str | None = Field(default=None, max_length=255)
+
+
+class KubernetesSecretAssignmentCreate(BaseModel):
+    cluster_id: uuid.UUID
+    namespace: str = Field(..., min_length=1, max_length=255)
+    secret_name: str = Field(..., min_length=1, max_length=255)
+    external_cert_id: uuid.UUID
+    auto_track_latest: bool = True
+    auto_deploy: bool = False
+
+
+class KubernetesSecretAssignmentRead(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: uuid.UUID
+    cluster_id: uuid.UUID
+    external_cert_id: uuid.UUID
+    namespace: str
+    secret_name: str
+    lifecycle_status: KubernetesSecretLifecycleStatus
+    health_status: KubernetesSecretHealthStatus
+    auto_track_latest: bool
+    auto_deploy: bool
+    pending_update: bool
+    current_resource_version: str | None
+    current_serial_hex: str | None
+    last_snapshot_serial_hex: str | None
+    last_deployed_at: datetime | None
+    last_validated_at: datetime | None
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    cluster_name: str | None = None
+    external_cert_subject_cn: str | None = None
+
+
+class KubernetesDryRunRead(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: uuid.UUID
+    cluster_id: uuid.UUID
+    assignment_id: uuid.UUID
+    action: KubernetesSecretDryRunAction
+    external_cert_id: uuid.UUID | None
+    namespace: str
+    secret_name: str
+    current_resource_version: str | None
+    diff: list[dict] | None
+    status: KubernetesSecretDryRunStatus
+    expires_at: datetime
+    created_by: str
+    created_at: datetime
+
+
+class KubernetesDryRunConfirmRequest(BaseModel):
+    dry_run_id: uuid.UUID
+
+
+class KubernetesSecretOperationRead(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: uuid.UUID
+    cluster_id: uuid.UUID
+    assignment_id: uuid.UUID | None
+    action: KubernetesSecretOperationAction
+    status: KubernetesSecretOperationStatus
+    dry_run_id: uuid.UUID | None
+    external_cert_id: uuid.UUID | None
+    resource_version_before: str | None
+    resource_version_after: str | None
+    serial_before: str | None
+    serial_after: str | None
+    diff: list[dict] | None
+    error_code: str | None
+    error_message: str | None
+    started_at: datetime
+    finished_at: datetime | None
+    created_by: str
 
 
 # ---------------------------------------------------------------------------

@@ -6,10 +6,13 @@ fixtures so the main upload -> assign -> fetch-certs chain is exercised end to e
 
 import os
 import uuid
+import base64
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
+import yaml
 from cryptography import x509
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes, serialization
@@ -27,6 +30,10 @@ from app.models import (
     AgentCertAssignment,
     AgentStatus,
     Certificate,
+    KubernetesSecretAssignment,
+    KubernetesSecretHealthStatus,
+    KubernetesSecretOperation,
+    KubernetesSecretOperationAction,
     Rollout,
     RolloutItem,
     RolloutItemStatus,
@@ -58,6 +65,40 @@ def _generate_test_certificate(common_name: str) -> tuple[str, str]:
         encryption_algorithm=serialization.NoEncryption(),
     ).decode()
     return cert_pem, key_pem
+
+
+def _service_account_kubeconfig(namespace: str = "default") -> str:
+    return yaml.safe_dump(
+        {
+            "apiVersion": "v1",
+            "kind": "Config",
+            "current-context": "minikube-sa",
+            "clusters": [
+                {
+                    "name": "minikube",
+                    "cluster": {
+                        "server": "https://127.0.0.1:8443",
+                        "certificate-authority-data": base64.b64encode(
+                            b"-----BEGIN CERTIFICATE-----\nCA\n-----END CERTIFICATE-----\n"
+                        ).decode(),
+                    },
+                }
+            ],
+            "users": [
+                {"name": "cert-control-plane", "user": {"token": "sa-token-value"}}
+            ],
+            "contexts": [
+                {
+                    "name": "minikube-sa",
+                    "context": {
+                        "cluster": "minikube",
+                        "user": "cert-control-plane",
+                        "namespace": namespace,
+                    },
+                }
+            ],
+        }
+    )
 
 
 @pytest.fixture()
@@ -181,6 +222,155 @@ async def test_external_cert_distribution_flow(integration_client):
     second_update = second_fetch_resp.json()["updates"][0]
     assert second_update["has_update"] is False
     assert second_update["not_after"] == first_update["not_after"]
+
+
+@pytest.mark.asyncio
+async def test_kubernetes_cluster_credential_update_validates_assignments(integration_client):
+    """Updating a cluster kubeconfig triggers read-only validate for active K8s assignments."""
+    client, session_factory = integration_client
+    cert_pem, key_pem = _generate_test_certificate("k8s-update.example.com")
+
+    upload_resp = await client.post(
+        "/api/control/external-certs",
+        json={
+            "name": "k8s-update-example-com",
+            "description": "k8s credential update validation test",
+            "cert_pem": cert_pem,
+            "key_pem": key_pem,
+            "chain_pem": None,
+            "provider": "manual",
+            "external_id": "k8s-update-001",
+        },
+    )
+    assert upload_resp.status_code == 201
+    cert_id = upload_resp.json()["id"]
+
+    cluster_resp = await client.post(
+        "/api/control/kubernetes/clusters",
+        json={
+            "name": "minikube-test",
+            "environment": "test",
+            "kubeconfig": _service_account_kubeconfig("cert-system"),
+        },
+    )
+    assert cluster_resp.status_code == 201
+    cluster_id = cluster_resp.json()["id"]
+
+    assignment_resp = await client.post(
+        "/api/control/kubernetes/assignments",
+        json={
+            "cluster_id": cluster_id,
+            "namespace": "cert-system",
+            "secret_name": "api-tls",
+            "external_cert_id": cert_id,
+        },
+    )
+    assert assignment_resp.status_code == 201
+    assignment_id = assignment_resp.json()["id"]
+
+    secret = {
+        "metadata": {
+            "resourceVersion": "rv-after-credential-update",
+            "annotations": {
+                "cert-control-plane.io/managed": "true",
+                "cert-control-plane.io/assignment-id": assignment_id,
+            },
+        },
+        "data": {
+            "tls.crt": base64.b64encode(cert_pem.encode()).decode(),
+        },
+    }
+
+    class FakeKubernetesClient:
+        async def get_secret(self, namespace: str, secret_name: str):
+            assert namespace == "cert-system"
+            assert secret_name == "api-tls"
+            return secret
+
+    with patch("app.api.control._kubernetes_client_from_cluster", return_value=FakeKubernetesClient()):
+        update_resp = await client.put(
+            f"/api/control/kubernetes/clusters/{cluster_id}/credentials",
+            json={
+                "kubeconfig": _service_account_kubeconfig("cert-system"),
+                "default_namespace": "cert-system",
+            },
+        )
+
+    assert update_resp.status_code == 200
+
+    async with session_factory() as session:
+        assignment = await session.get(KubernetesSecretAssignment, uuid.UUID(assignment_id))
+        assert assignment is not None
+        assert assignment.health_status == KubernetesSecretHealthStatus.HEALTHY
+        assert assignment.current_resource_version == "rv-after-credential-update"
+        assert assignment.last_validated_at is not None
+
+        result = await session.execute(
+            select(KubernetesSecretOperation).where(
+                KubernetesSecretOperation.assignment_id == assignment.id,
+                KubernetesSecretOperation.action == KubernetesSecretOperationAction.VALIDATE,
+            )
+        )
+        operations = result.scalars().all()
+        assert len(operations) == 1
+        assert operations[0].serial_after == assignment.current_serial_hex
+
+
+@pytest.mark.asyncio
+async def test_kubernetes_cluster_and_secret_assignment_flow(integration_client):
+    """Create a K8s cluster target and map one uploaded cert to one Secret."""
+    client, _session_factory = integration_client
+
+    cluster_resp = await client.post(
+        "/api/control/kubernetes/clusters",
+        json={
+            "name": "minikube-dev",
+            "environment": "dev",
+            "kubeconfig": _service_account_kubeconfig("default"),
+        },
+    )
+    assert cluster_resp.status_code == 201
+    cluster = cluster_resp.json()
+    assert cluster["api_server"] == "https://127.0.0.1:8443"
+    assert cluster["default_namespace"] == "default"
+    assert cluster["connection_status"] == "unknown"
+
+    cert_pem, key_pem = _generate_test_certificate("api.example.com")
+    upload_resp = await client.post(
+        "/api/control/external-certs",
+        json={
+            "name": "api-example-com",
+            "description": "k8s assignment test cert",
+            "cert_pem": cert_pem,
+            "key_pem": key_pem,
+            "chain_pem": None,
+            "provider": "manual",
+            "external_id": "k8s-001",
+        },
+    )
+    assert upload_resp.status_code == 201
+    cert_id = upload_resp.json()["id"]
+
+    assignment_resp = await client.post(
+        "/api/control/kubernetes/assignments",
+        json={
+            "cluster_id": cluster["id"],
+            "namespace": "default",
+            "secret_name": "api-tls",
+            "external_cert_id": cert_id,
+        },
+    )
+    assert assignment_resp.status_code == 201
+    assignment = assignment_resp.json()
+    assert assignment["cluster_name"] == "minikube-dev"
+    assert assignment["external_cert_subject_cn"] == "api.example.com"
+    assert assignment["lifecycle_status"] == "pending"
+    assert assignment["health_status"] == "unknown"
+
+    list_resp = await client.get("/api/control/kubernetes/assignments")
+    assert list_resp.status_code == 200
+    assert list_resp.json()["total"] == 1
+    assert list_resp.json()["items"][0]["secret_name"] == "api-tls"
 
 
 @pytest.mark.asyncio

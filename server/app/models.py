@@ -9,10 +9,12 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSON, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -46,6 +48,57 @@ class RolloutItemStatus(str, enum.Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     ROLLED_BACK = "rolled_back"
+
+
+class KubernetesClusterConnectionStatus(str, enum.Enum):
+    UNKNOWN = "unknown"
+    ACTIVE = "active"
+    FAILED = "failed"
+
+
+class KubernetesSecretLifecycleStatus(str, enum.Enum):
+    PENDING = "pending"
+    ADOPTED = "adopted"
+    DEPLOYED = "deployed"
+    FAILED = "failed"
+    ROLLED_BACK = "rolled_back"
+
+
+class KubernetesSecretHealthStatus(str, enum.Enum):
+    UNKNOWN = "unknown"
+    HEALTHY = "healthy"
+    MISSING = "missing"
+    UNMANAGED = "unmanaged"
+    SERIAL_MISMATCH = "serial_mismatch"
+    INVALID_SECRET = "invalid_secret"
+    RBAC_ERROR = "rbac_error"
+    CLUSTER_UNREACHABLE = "cluster_unreachable"
+
+
+class KubernetesSecretDryRunAction(str, enum.Enum):
+    ADOPT = "adopt"
+    DEPLOY = "deploy"
+    ROLLBACK = "rollback"
+
+
+class KubernetesSecretDryRunStatus(str, enum.Enum):
+    PENDING = "pending"
+    CONFIRMED = "confirmed"
+    EXPIRED = "expired"
+
+
+class KubernetesSecretOperationAction(str, enum.Enum):
+    TEST_CONNECTION = "test_connection"
+    ADOPT = "adopt"
+    DEPLOY = "deploy"
+    ROLLBACK = "rollback"
+    VALIDATE = "validate"
+
+
+class KubernetesSecretOperationStatus(str, enum.Enum):
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +229,183 @@ class Certificate(Base):
     )
 
     agent: Mapped["Agent"] = relationship("Agent")
+
+
+class KubernetesCluster(Base):
+    """Target Kubernetes cluster reachable through an uploaded SA kubeconfig."""
+    __tablename__ = "kubernetes_clusters"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    environment: Mapped[str | None] = mapped_column(String(100))
+    api_server: Mapped[str] = mapped_column(String(1024), nullable=False)
+    default_namespace: Mapped[str | None] = mapped_column(String(255))
+    kubeconfig_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
+    connection_status: Mapped[KubernetesClusterConnectionStatus] = mapped_column(
+        Enum(KubernetesClusterConnectionStatus),
+        default=KubernetesClusterConnectionStatus.UNKNOWN,
+        nullable=False,
+    )
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    assignments: Mapped[list["KubernetesSecretAssignment"]] = relationship(
+        "KubernetesSecretAssignment",
+        back_populates="cluster",
+        cascade="all, delete-orphan",
+    )
+
+
+class KubernetesSecretAssignment(Base):
+    """Explicit mapping from an external certificate to one Kubernetes Secret."""
+    __tablename__ = "kubernetes_secret_assignments"
+    __table_args__ = (
+        Index(
+            "uq_k8s_secret_assignments_active_target",
+            "cluster_id",
+            "namespace",
+            "secret_name",
+            unique=True,
+            postgresql_where=text("is_active = true"),
+            sqlite_where=text("is_active = 1"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    cluster_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("kubernetes_clusters.id", ondelete="CASCADE"), nullable=False
+    )
+    external_cert_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("external_certificates.id"), nullable=False
+    )
+    namespace: Mapped[str] = mapped_column(String(255), nullable=False)
+    secret_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    lifecycle_status: Mapped[KubernetesSecretLifecycleStatus] = mapped_column(
+        Enum(KubernetesSecretLifecycleStatus),
+        default=KubernetesSecretLifecycleStatus.PENDING,
+        nullable=False,
+    )
+    health_status: Mapped[KubernetesSecretHealthStatus] = mapped_column(
+        Enum(KubernetesSecretHealthStatus),
+        default=KubernetesSecretHealthStatus.UNKNOWN,
+        nullable=False,
+    )
+    auto_track_latest: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    auto_deploy: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    pending_update: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    current_resource_version: Mapped[str | None] = mapped_column(String(255))
+    current_serial_hex: Mapped[str | None] = mapped_column(String(40))
+    last_snapshot_encrypted: Mapped[str | None] = mapped_column(Text)
+    last_snapshot_serial_hex: Mapped[str | None] = mapped_column(String(40))
+    last_deployed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_validated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    cluster: Mapped["KubernetesCluster"] = relationship(
+        "KubernetesCluster", back_populates="assignments"
+    )
+    external_cert: Mapped["ExternalCertificate"] = relationship("ExternalCertificate")
+
+
+class KubernetesSecretDryRun(Base):
+    """Persisted dry-run token required before any Kubernetes Secret write."""
+    __tablename__ = "kubernetes_secret_dry_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    cluster_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("kubernetes_clusters.id", ondelete="CASCADE"), nullable=False
+    )
+    assignment_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("kubernetes_secret_assignments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    action: Mapped[KubernetesSecretDryRunAction] = mapped_column(
+        Enum(KubernetesSecretDryRunAction), nullable=False
+    )
+    external_cert_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("external_certificates.id"), nullable=True
+    )
+    namespace: Mapped[str] = mapped_column(String(255), nullable=False)
+    secret_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    current_resource_version: Mapped[str | None] = mapped_column(String(255))
+    diff: Mapped[list[dict] | None] = mapped_column(JSON)
+    status: Mapped[KubernetesSecretDryRunStatus] = mapped_column(
+        Enum(KubernetesSecretDryRunStatus),
+        default=KubernetesSecretDryRunStatus.PENDING,
+        nullable=False,
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class KubernetesSecretOperation(Base):
+    """Audit-grade operation record for K8s Secret actions."""
+    __tablename__ = "kubernetes_secret_operations"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    cluster_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("kubernetes_clusters.id", ondelete="CASCADE"), nullable=False
+    )
+    assignment_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("kubernetes_secret_assignments.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    action: Mapped[KubernetesSecretOperationAction] = mapped_column(
+        Enum(KubernetesSecretOperationAction), nullable=False
+    )
+    status: Mapped[KubernetesSecretOperationStatus] = mapped_column(
+        Enum(KubernetesSecretOperationStatus),
+        default=KubernetesSecretOperationStatus.RUNNING,
+        nullable=False,
+    )
+    dry_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("kubernetes_secret_dry_runs.id"), nullable=True
+    )
+    external_cert_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("external_certificates.id"), nullable=True
+    )
+    resource_version_before: Mapped[str | None] = mapped_column(String(255))
+    resource_version_after: Mapped[str | None] = mapped_column(String(255))
+    serial_before: Mapped[str | None] = mapped_column(String(40))
+    serial_after: Mapped[str | None] = mapped_column(String(40))
+    diff: Mapped[list[dict] | None] = mapped_column(JSON)
+    error_code: Mapped[str | None] = mapped_column(String(100))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by: Mapped[str] = mapped_column(String(255), nullable=False)
 
 
 class Rollout(Base):

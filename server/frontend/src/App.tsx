@@ -6,6 +6,7 @@ import Dashboard from './components/Dashboard';
 import CertManagementPage from './components/CertManagementPage';
 import AgentsPage from './components/AgentsPage';
 import SettingsPage from './components/SettingsPage';
+import KubernetesPage from './components/KubernetesPage';
 
 function App() {
   const [apiKey, setApiKey] = useState<string | null>(() =>
@@ -31,6 +32,7 @@ function App() {
           <Route path="/certificates" element={<CertManagementPage />} />
           <Route path="/agents" element={<AgentsPage />} />
           <Route path="/agents/:id" element={<AgentsPage />} />
+          <Route path="/kubernetes" element={<KubernetesPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Route>
       </Routes>

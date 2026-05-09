@@ -1,7 +1,9 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
-import { FileKey2, RefreshCw, Search, ShieldCheck, Trash2, UploadCloud, X, Rocket } from 'lucide-react';
-import { format, formatDistanceToNow } from 'date-fns';
+import { RefreshCw, UploadCloud, X } from 'lucide-react';
 import { apiFetch, apiPost, apiUpload } from '../lib/api';
+import CertFilters from './CertFilters';
+import CertTable from './CertTable';
+import CertDetailDrawer from './CertDetailDrawer';
 import FileUploadZone from './FileUploadZone';
 import ArchivePreview from './ArchivePreview';
 
@@ -72,41 +74,8 @@ interface ArchivePreviewData {
 type FilterStatus = 'all' | 'healthy' | 'warning' | 'critical' | 'inactive';
 type UploadMode = 'pem' | 'archive';
 
-const providerLabels: Record<string, string> = {
-  manual: '手动上传',
-  aliyun: '阿里云',
-  letsencrypt: "Let's Encrypt",
-  digicert: 'DigiCert',
-};
-
-const livenessTone: Record<'online' | 'delayed' | 'offline', string> = {
-  online: 'bg-[#73bf69]',
-  delayed: 'bg-[#ff995c]',
-  offline: 'bg-[#ff995c]',
-};
-
 function getDaysRemaining(notAfter: string) {
   return Math.ceil((new Date(notAfter).getTime() - Date.now()) / 86400000);
-}
-
-function getCertHealth(daysRemaining: number, isActive: boolean) {
-  if (!isActive) {
-    return { label: '未启用', tone: 'border-white/10 bg-white/5 text-slate-300' };
-  }
-  if (daysRemaining < 0) {
-    return { label: '已过期', tone: 'border-[rgba(255,153,92,0.18)] bg-[rgba(255,153,92,0.10)] text-[#ffbf8f]' };
-  }
-  if (daysRemaining <= 7) {
-    return { label: '7 天内到期', tone: 'border-[rgba(255,153,92,0.18)] bg-[rgba(255,153,92,0.10)] text-[#ffbf8f]' };
-  }
-  if (daysRemaining <= 30) {
-    return { label: '30 天内关注', tone: 'border-white/8 bg-white/[0.03] text-neutral-300' };
-  }
-  return { label: '健康', tone: 'border-white/8 bg-white/[0.03] text-neutral-300' };
-}
-
-function previewPem(pem: string, lineCount = 8) {
-  return pem.split('\n').slice(0, lineCount).join('\n').trim();
 }
 
 export default function CertManagementPage() {
@@ -468,42 +437,12 @@ export default function CertManagementPage() {
         </div>
       </section>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-1 flex-wrap items-center gap-3">
-          <label className="relative min-w-[260px] flex-1 max-w-md">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/50" />
-            <input
-              className="input-field pl-9"
-              placeholder="搜索域名、证书名或序列号"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </label>
-          <div className="flex flex-wrap gap-2">
-            {([
-              ['all', '全部'],
-              ['healthy', '健康'],
-              ['warning', '30 天内'],
-              ['critical', '7 天内'],
-              ['inactive', '未启用'],
-            ] as Array<[FilterStatus, string]>).map(([status, label]) => (
-              <button
-                key={status}
-                type="button"
-                onClick={() => setStatusFilter(status)}
-                className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
-                  statusFilter === status
-                    ? 'border-[rgba(255,153,92,0.18)] bg-[rgba(255,153,92,0.10)] text-[#ffbf8f]'
-                    : 'border-white/8 bg-white/[0.03] text-white/70 hover:text-white'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-      </div>
+      <CertFilters
+        search={search}
+        onSearchChange={setSearch}
+        statusFilter={statusFilter}
+        onStatusFilterChange={setStatusFilter}
+      />
 
       {showUpload && (
         <div className="glass-panel rounded-[24px] p-6">
@@ -528,7 +467,7 @@ export default function CertManagementPage() {
                 uploadMode === 'pem'
                   ? 'border-[rgba(255,153,92,0.18)] bg-[rgba(255,153,92,0.10)] text-[#ffbf8f]'
                   : 'border-white/8 bg-white/[0.03] text-neutral-400 hover:text-white'
-                }`}
+              }`}
             >
               PEM 文本
             </button>
@@ -539,7 +478,7 @@ export default function CertManagementPage() {
                 uploadMode === 'archive'
                   ? 'border-[rgba(255,153,92,0.18)] bg-[rgba(255,153,92,0.10)] text-[#ffbf8f]'
                   : 'border-white/8 bg-white/[0.03] text-neutral-400 hover:text-white'
-                }`}
+              }`}
             >
               文件上传
             </button>
@@ -679,311 +618,31 @@ export default function CertManagementPage() {
       )}
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.9fr)_400px]">
-        <div className="glass-panel overflow-hidden">
-          <div className="border-b border-white/6 px-5 py-4">
-            <div className="section-kicker">Inventory Table</div>
-            <h3 className="mt-2 text-lg font-semibold text-white">证书资产列表</h3>
-            <p className="mt-1 text-sm text-white/70">列表保留高频字段，详情放到右侧抽屉，不再把所有信息挤在一行里。</p>
-          </div>
+        <CertTable
+          certs={filteredCerts}
+          isLoading={isLoading}
+          selectedCertId={selectedCertId}
+          onSelectCert={setSelectedCertId}
+          bindingCounts={bindingCounts}
+          onDeleteCert={(id) => { setDeletingCertId(id); setShowDeleteConfirm(true); }}
+        />
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-white/6 text-xs text-white/50">
-                  <th className="px-5 py-3 text-left font-medium">证书主体</th>
-                  <th className="px-4 py-3 text-left font-medium">来源</th>
-                  <th className="px-4 py-3 text-left font-medium">到期时间</th>
-                  <th className="px-4 py-3 text-left font-medium">风险</th>
-                  <th className="px-4 py-3 text-left font-medium">分发节点</th>
-                  <th className="px-4 py-3 text-left font-medium">状态</th>
-                  <th className="px-5 py-3 text-left font-medium">动作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {isLoading ? (
-                  Array.from({ length: 4 }).map((_, index) => (
-                    <tr key={index} className="table-row">
-                      {Array.from({ length: 7 }).map((__, cellIndex) => (
-                        <td key={cellIndex} className="px-4 py-4">
-                          <div className="skeleton h-4 rounded" />
-                        </td>
-                      ))}
-                    </tr>
-                  ))
-                ) : filteredCerts.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-5 py-14 text-center text-sm text-white/50">没有匹配的证书。</td>
-                  </tr>
-                ) : (
-                  filteredCerts.map((cert) => {
-                    const daysRemaining = getDaysRemaining(cert.not_after);
-                    const health = getCertHealth(daysRemaining, cert.is_active);
-                    const isSelected = selectedCertId === cert.id;
-                    const bindingCount = bindingCounts[cert.id];
-
-                    return (
-                      <tr
-                        key={cert.id}
-                        className={`table-row cursor-pointer ${isSelected ? 'bg-white/[0.05]' : ''}`}
-                        onClick={() => setSelectedCertId(cert.id)}
-                      >
-                        <td className="px-5 py-4">
-                          <div className="flex items-start gap-3">
-                            <div className="rounded-[14px] border border-white/8 bg-white/[0.03] p-2 text-white">
-                              <FileKey2 size={16} />
-                            </div>
-                            <div>
-                              <div className="font-medium text-white">{cert.subject_cn}</div>
-                              <div className="mt-1 text-xs text-white/50">{cert.name}</div>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-4 text-white/70">{providerLabels[cert.provider || 'manual'] || cert.provider || '手动上传'}</td>
-                        <td className="px-4 py-4 text-white/80">{format(new Date(cert.not_after), 'yyyy-MM-dd')}</td>
-                        <td className="px-4 py-4">
-                          <span className={`rounded-full border px-2 py-0.5 text-xs ${health.tone}`}>{health.label}</span>
-                          <div className="mt-1 text-xs text-white/50">
-                            {daysRemaining < 0 ? `已过期 ${Math.abs(daysRemaining)} 天` : `${daysRemaining} 天`}
-                          </div>
-                        </td>
-                        <td className="px-4 py-4 text-white/70">{typeof bindingCount === 'number' ? `${bindingCount} 台` : '点选后计算'}</td>
-                        <td className="px-4 py-4">
-                          <span className={`rounded-full border px-2 py-0.5 text-xs ${cert.is_active ? 'border-[rgba(115,191,105,0.18)] bg-[rgba(115,191,105,0.10)] text-[#9adf90]' : 'border-white/8 bg-white/[0.03] text-neutral-300'}`}>
-                            {cert.is_active ? '活跃' : '未启用'}
-                          </span>
-                        </td>
-                        <td className="px-5 py-4">
-                          <div className="flex gap-2">
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setSelectedCertId(cert.id);
-                              }}
-                              className="text-xs font-medium text-[#ffbf8f] hover:text-[#ffd0ad]"
-                            >
-                              查看抽屉
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setDeletingCertId(cert.id);
-                                setShowDeleteConfirm(true);
-                              }}
-                              className="text-xs font-medium text-[#ffbf8f] hover:text-[#ffd0ad]"
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <aside className="glass-panel rounded-[24px] self-start p-5 xl:sticky xl:top-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="section-kicker">Certificate Drawer</div>
-              <h3 className="mt-2 text-lg font-semibold text-white">证书详情抽屉</h3>
-              <p className="mt-1 text-sm text-white/50">查看 PEM、绑定节点和密钥托管策略。</p>
-            </div>
-            {selectedCert && <span className="metric-badge border-white/8 bg-white/[0.03] text-white/80">{selectedAssignments.length} 节点</span>}
-          </div>
-
-          {!selectedCertId ? (
-            <div className="mt-6 rounded-lg border border-white/8 bg-white/[0.03] px-4 py-8 text-center text-sm text-white/50">从左侧选择一张证书查看详情。</div>
-          ) : isDetailLoading ? (
-            <div className="mt-6 space-y-3">
-              <div className="skeleton h-6 rounded" />
-              <div className="skeleton h-20 rounded" />
-              <div className="skeleton h-32 rounded" />
-            </div>
-          ) : detailError ? (
-            <div className="mt-6 rounded-[20px] border border-[rgba(255,153,92,0.18)] bg-[rgba(255,153,92,0.10)] p-4 text-sm text-[#ffbf8f]">{detailError}</div>
-          ) : selectedCert ? (
-            <div className="mt-6 space-y-5">
-              <div>
-                <div className="text-xl font-semibold text-white">{selectedCert.subject_cn}</div>
-                <div className="mt-1 text-sm text-white/70">{selectedCert.name}</div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <span className={`rounded-full border px-2 py-0.5 text-xs ${getCertHealth(getDaysRemaining(selectedCert.not_after), selectedCert.is_active).tone}`}>
-                    {getCertHealth(getDaysRemaining(selectedCert.not_after), selectedCert.is_active).label}
-                  </span>
-                  <span className="rounded-full border border-white/8 bg-white/[0.03] px-2 py-0.5 text-xs text-white/80">
-                    {providerLabels[selectedCert.provider || 'manual'] || selectedCert.provider || '手动上传'}
-                  </span>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="rounded-[18px] border border-white/8 bg-white/[0.03] p-3">
-                  <div className="text-xs text-white/50">到期时间</div>
-                  <div className="mt-2 text-white">{format(new Date(selectedCert.not_after), 'yyyy-MM-dd HH:mm')}</div>
-                </div>
-                <div className="rounded-[18px] border border-white/8 bg-white/[0.03] p-3">
-                  <div className="text-xs text-white/50">更新于</div>
-                  <div className="mt-2 text-white">{formatDistanceToNow(new Date(selectedCert.updated_at), { addSuffix: true })}</div>
-                </div>
-                <div className="col-span-2 rounded-[18px] border border-white/8 bg-white/[0.03] p-3">
-                  <div className="text-xs text-white/50">序列号</div>
-                  <div className="mt-2 break-all font-mono text-xs text-white/85">{selectedCert.serial_hex}</div>
-                </div>
-              </div>
-
-              <div>
-                <div className="mb-3 flex items-center gap-2 text-sm font-medium text-white">
-                  <ShieldCheck size={15} className="text-[#ffbf8f]" />
-                  分发节点
-                </div>
-                {selectedAssignments.length === 0 ? (
-                  <div className="rounded-[18px] border border-white/8 bg-white/[0.03] px-4 py-6 text-sm text-white/50">当前还没有节点绑定这张证书。</div>
-                ) : (
-                  <div className="space-y-2">
-                    {selectedAssignments.map((assignment) => (
-                        <div key={assignment.id} className="rounded-[18px] border border-white/8 bg-white/[0.03] p-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <div className="flex items-center gap-2 text-sm font-medium text-white">
-                              <span className={`h-2 w-2 rounded-full ${livenessTone[assignment.agent_liveness]}`} />
-                              {assignment.agent_name}
-                            </div>
-                            <div className="mt-1 break-all text-xs text-white/50">{assignment.local_path}</div>
-                          </div>
-                          <div className="text-xs text-white/50">{formatDistanceToNow(new Date(assignment.created_at), { addSuffix: true })}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setShowDeploy(true);
-                  setDeployResult(null);
-                  setSelectedAgentIds(new Set());
-                }}
-                className="flex w-full items-center justify-center gap-2 rounded-[18px] border border-[rgba(255,153,92,0.18)] bg-[rgba(255,153,92,0.10)] py-3 text-sm font-medium text-[#ffbf8f] transition hover:bg-[rgba(255,153,92,0.16)]"
-              >
-                <Rocket size={16} />
-                一键部署到 Agent
-              </button>
-
-              <div className="rounded-[20px] border border-white/8 bg-white/[0.03] p-4">
-                <div className="text-sm font-medium text-white">私钥策略</div>
-                <p className="mt-2 text-sm leading-6 text-white/70">
-                  私钥由服务端使用 Fernet 加密托管，控制台只展示证书正文和链，不返回明文私钥。
-                </p>
-              </div>
-
-              <div>
-                <div className="mb-2 text-sm font-medium text-white">证书 PEM 预览</div>
-                  <pre className="overflow-x-auto rounded-lg border border-white/8 bg-white/[0.02] p-4 text-xs leading-6 text-white/80">
-                  {previewPem(selectedCert.cert_pem)}
-                </pre>
-              </div>
-
-              {selectedCert.chain_pem && (
-                <div>
-                  <div className="mb-2 text-sm font-medium text-white">证书链预览</div>
-                <pre className="overflow-x-auto rounded-lg border border-white/8 bg-white/[0.02] p-4 text-xs leading-6 text-white/80">
-                    {previewPem(selectedCert.chain_pem)}
-                  </pre>
-                </div>
-              )}
-            </div>
-          ) : null}
-        </aside>
+        <CertDetailDrawer
+          selectedCert={selectedCert}
+          selectedAssignments={selectedAssignments}
+          isDetailLoading={isDetailLoading}
+          detailError={detailError}
+          agents={agents}
+          selectedAgentIds={selectedAgentIds}
+          onSelectedAgentIdsChange={setSelectedAgentIds}
+          showDeploy={showDeploy}
+          onShowDeployChange={setShowDeploy}
+          deploying={deploying}
+          deployResult={deployResult}
+          onDeployResultChange={setDeployResult}
+          onDeploy={handleDeploy}
+        />
       </div>
-
-      {showDeploy && selectedCertId && selectedCert && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="glass-panel w-full max-w-lg rounded-[24px] p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="section-kicker">Deploy</div>
-                <h3 className="mt-2 text-lg font-semibold text-white">一键部署证书</h3>
-              </div>
-              <button type="button" onClick={() => setShowDeploy(false)} className="rounded-[16px] border border-white/8 p-2 text-white/70 hover:text-white">
-                <X size={18} />
-              </button>
-            </div>
-
-            <p className="mt-3 text-sm text-white/50">
-              将 <span className="text-white">{selectedCert.subject_cn}</span> 部署到选中的 Agent，路径自动根据证书目录 + 域名生成。
-            </p>
-
-            <div className="mt-4">
-              <div className="mb-2 flex items-center justify-between">
-                <span className="text-xs text-white/70">选择 Agent</span>
-                <div className="flex gap-3">
-                  <button type="button" onClick={() => setSelectedAgentIds(new Set(agents.filter(a => a.status === 'active' && a.cert_paths?.length).map(a => a.id)))} className="text-xs text-[#ffbf8f] hover:underline">全选可用</button>
-                  <button type="button" onClick={() => setSelectedAgentIds(new Set())} className="text-xs text-white/50 hover:underline">清空</button>
-                </div>
-              </div>
-              <div className="max-h-[280px] space-y-1.5 overflow-y-auto">
-                {agents.filter(a => a.status === 'active').map((agent) => {
-                  const hasPaths = !!agent.cert_paths?.length;
-                  const baseDir = agent.cert_paths?.[0]?.replace(/\/[^/]+$/, '') || null;
-                  const localPath = baseDir ? `${baseDir}/${selectedCert.subject_cn}.crt` : null;
-                  const checked = selectedAgentIds.has(agent.id);
-
-                  return (
-                    <label key={agent.id} className={`flex cursor-pointer items-center gap-3 rounded-[14px] border border-white/4 px-3 py-2.5 transition hover:bg-white/[0.03] ${!hasPaths ? 'opacity-40' : ''}`}>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        disabled={!hasPaths}
-                        onChange={(e) => {
-                          const next = new Set(selectedAgentIds);
-                          if (e.target.checked) next.add(agent.id); else next.delete(agent.id);
-                          setSelectedAgentIds(next);
-                        }}
-                        className="h-4 w-4 rounded border-white/20 bg-transparent accent-[#ffbf8f]"
-                      />
-                      <span className={`h-2 w-2 shrink-0 rounded-full ${livenessTone[agent.liveness]}`} />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm text-white">{agent.name}</div>
-                        {hasPaths ? (
-                          <div className="mt-0.5 truncate font-mono text-xs text-[#9adf90]">{localPath}</div>
-                        ) : (
-                          <div className="mt-0.5 text-xs text-white/30">未上报证书路径</div>
-                        )}
-                      </div>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-
-            {deployResult && (
-              <div className={`mt-3 rounded-[14px] border p-3 text-sm ${deployResult.failed === 0 ? 'border-[rgba(115,191,105,0.18)] bg-[rgba(115,191,105,0.10)] text-[#9adf90]' : 'border-[rgba(255,153,92,0.18)] bg-[rgba(255,153,92,0.10)] text-[#ffbf8f]'}`}>
-                部署完成：成功 {deployResult.success} 个，失败 {deployResult.failed} 个
-              </div>
-            )}
-
-            <div className="mt-4 flex justify-end gap-2">
-              <button type="button" onClick={() => setShowDeploy(false)} className="btn-secondary">关闭</button>
-              <button
-                type="button"
-                onClick={handleDeploy}
-                disabled={deploying || selectedAgentIds.size === 0}
-                className="btn-primary flex items-center gap-1.5"
-              >
-                <Rocket size={14} />
-                {deploying ? '部署中...' : `部署到 ${selectedAgentIds.size} 个 Agent`}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">

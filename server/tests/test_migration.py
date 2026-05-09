@@ -60,6 +60,27 @@ class TestMigration002:
         assert "to_hex" in text
 
 
+class TestMigration006:
+    def test_006_exists(self):
+        assert (VERSIONS_DIR / "006_kubernetes_secret_deployments.py").is_file()
+
+    def test_006_revision_chain(self):
+        mod = _load_migration("006_kubernetes_secret_deployments.py")
+        assert mod.revision == "006"
+        assert mod.down_revision == "005"
+
+    def test_006_creates_kubernetes_secret_tables(self):
+        text = (VERSIONS_DIR / "006_kubernetes_secret_deployments.py").read_text(
+            encoding="utf-8"
+        )
+        assert "kubernetes_clusters" in text
+        assert "kubernetes_secret_assignments" in text
+        assert "kubernetes_secret_dry_runs" in text
+        assert "kubernetes_secret_operations" in text
+        assert "uq_k8s_secret_assignments_active_target" in text
+        assert "postgresql_where=sa.text(\"is_active = true\")" in text
+
+
 class TestORMModelAlignment:
     def test_certificate_model_uses_serial_hex(self):
         """ORM Certificate model must use serial_hex, not serial."""
@@ -68,3 +89,9 @@ class TestORMModelAlignment:
         # Verify it's a String column
         col = Certificate.__table__.columns["serial_hex"]
         assert str(col.type) == "VARCHAR(40)"
+
+    def test_kubernetes_secret_assignment_has_active_target_index(self):
+        from app.models import KubernetesSecretAssignment
+
+        indexes = {index.name for index in KubernetesSecretAssignment.__table__.indexes}
+        assert "uq_k8s_secret_assignments_active_target" in indexes

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { Bell, FileKey2, LayoutDashboard, Menu, Server, Settings, ShieldCheck, X } from 'lucide-react';
+import { Bell, Boxes, FileKey2, LayoutDashboard, Menu, Server, Settings, ShieldCheck, X } from 'lucide-react';
 import { apiFetch } from '../lib/api';
 
 interface LayoutProps {
@@ -28,6 +28,13 @@ const navItems = [
     label: 'Agent 舰队',
     title: 'Agent 舰队',
     subtitle: 'Agents',
+  },
+  {
+    to: '/kubernetes',
+    icon: Boxes,
+    label: 'Kubernetes',
+    title: 'Kubernetes',
+    subtitle: 'K8s Secrets',
   },
   {
     to: '/settings',

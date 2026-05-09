@@ -100,6 +100,7 @@ scripts/upload-and-assign-certs.sh
 # Test results
 server/frontend/test-results/
 server/playwright-report/
+.playwright-cli/
 
 # Temporary files
 setup_doc.png

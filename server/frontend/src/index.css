@@ -185,4 +185,81 @@
   ::-webkit-scrollbar-thumb:hover {
     background: rgba(148, 163, 184, 0.34);
   }
+
+  /* Drawer slide-in/out animation */
+  @keyframes drawerSlideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+
+  @keyframes drawerSlideOut {
+    from { transform: translateX(0); opacity: 1; }
+    to { transform: translateX(100%); opacity: 0; }
+  }
+
+  .drawer-enter {
+    animation: drawerSlideIn 0.25s ease-out forwards;
+  }
+
+  .drawer-exit {
+    animation: drawerSlideOut 0.2s ease-in forwards;
+  }
+
+  /* Table sort icon */
+  .sort-icon {
+    @apply inline-flex items-center ml-1 opacity-40 transition-opacity duration-150;
+  }
+
+  .sort-icon:hover,
+  .sort-active .sort-icon {
+    opacity: 1;
+  }
+
+  /* Filter bar responsive layout */
+  .filter-bar {
+    @apply flex flex-wrap items-center gap-3;
+  }
+
+  @media (max-width: 640px) {
+    .filter-bar {
+      @apply flex-col items-stretch;
+    }
+  }
+
+  /* Skeleton pulse variants */
+  .skeleton-text {
+    height: 1rem;
+    width: 75%;
+    border-radius: 6px;
+    background: linear-gradient(90deg, rgba(30, 41, 59, 0.52) 25%, rgba(51, 65, 85, 0.72) 50%, rgba(30, 41, 59, 0.52) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+
+  .skeleton-title {
+    height: 1.5rem;
+    width: 50%;
+    border-radius: 6px;
+    background: linear-gradient(90deg, rgba(30, 41, 59, 0.52) 25%, rgba(51, 65, 85, 0.72) 50%, rgba(30, 41, 59, 0.52) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+
+  .skeleton-card {
+    height: 6rem;
+    width: 100%;
+    border-radius: 16px;
+    background: linear-gradient(90deg, rgba(30, 41, 59, 0.52) 25%, rgba(51, 65, 85, 0.72) 50%, rgba(30, 41, 59, 0.52) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+
+  .skeleton-avatar {
+    height: 2.5rem;
+    width: 2.5rem;
+    border-radius: 9999px;
+    background: linear-gradient(90deg, rgba(30, 41, 59, 0.52) 25%, rgba(51, 65, 85, 0.72) 50%, rgba(30, 41, 59, 0.52) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
 }

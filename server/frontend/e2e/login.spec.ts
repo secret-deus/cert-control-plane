@@ -33,7 +33,7 @@ test.describe('Dashboard Login', () => {
     await page.press('input[type="password"]', 'Enter');
 
     // Should show dashboard content (sidebar items are in Chinese)
-    await expect(page.locator('text=Agent 管理')).toBeVisible();
+    await expect(page.getByText('Agent 舰队')).toBeVisible();
   });
 
   test('should persist API key in sessionStorage', async ({ page }) => {
@@ -44,7 +44,7 @@ test.describe('Dashboard Login', () => {
     await page.press('input[type="password"]', 'Enter');
 
     // Should be logged in
-    await expect(page.locator('text=Agent 管理')).toBeVisible();
+    await expect(page.getByText('Agent 舰队')).toBeVisible();
 
     // Reload page - should stay logged in via sessionStorage
     await page.reload();

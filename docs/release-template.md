@@ -205,6 +205,13 @@ None at this time.
 - Internal PKI integration
 - Automatic certificate renewal
 
+### v0.5.0 (Phase 5: Kubernetes Native Distribution)
+- Kubernetes TLS Secret create/update support
+- ServiceAccount kubeconfig upload and read-only connection testing
+- Explicit cluster/namespace/Secret assignment mapping
+- Secret adopt, dry-run, confirm, read-back verification, and latest rollback
+- Real minikube integration and browser E2E screenshot report
+
 ## 🙏 Contributors
 
 Thanks to all contributors who made this release possible!

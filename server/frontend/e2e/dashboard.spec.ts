@@ -43,6 +43,14 @@ test.describe('Dashboard', () => {
       });
     });
 
+    await page.route('**/api/control/external-certs**', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [], total: 0 }),
+      });
+    });
+
     await page.route('**/api/control/dashboard/certs-expiry**', async route => {
       await route.fulfill({
         status: 200,
@@ -51,28 +59,28 @@ test.describe('Dashboard', () => {
       });
     });
 
-    await page.route('**/api/control/audit**', async route => {
+    await page.route('**/api/control/dashboard/events', async route => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ items: [] }),
+        body: JSON.stringify([]),
       });
     });
   });
 
   test('should display KPI cards', async ({ page }) => {
     await page.goto('/dashboard');
-    await expect(page.locator('text=证书总数')).toBeVisible();
-    await expect(page.locator('text=7天内过期')).toBeVisible();
+    await expect(page.getByText('证书总数').first()).toBeVisible();
+    await expect(page.getByText('7天内过期').first()).toBeVisible();
   });
 
   test('should display agent health section', async ({ page }) => {
     await page.goto('/dashboard');
-    await expect(page.locator('text=Agent 健康状态')).toBeVisible();
+    await expect(page.getByText('Agent 健康状态')).toBeVisible();
   });
 
-  test('should display alert table section', async ({ page }) => {
+  test('should display activity log section', async ({ page }) => {
     await page.goto('/dashboard');
-    await expect(page.locator('text=告警列表')).toBeVisible();
+    await expect(page.getByRole('heading', { name: '最近操作日志' })).toBeVisible();
   });
 });

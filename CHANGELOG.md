@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/zh-CN/).
 
+## [0.3.0] - 2026-05-15
+
+### Added
+- **前端组件拆分**: CertFilters、CertTable、CertDetailDrawer、AgentStatsCards、AgentTable、AgentDetailPage 六个子组件从大页面中拆分
+- **前端样式增强**: 新增 drawer 滑入/滑出动画、表格排序图标样式、筛选条响应式布局、skeleton 变体样式
+- **E2E 测试适配**: Playwright 测试用例适配新 UI（证书资产、Agent舰队、Dashboard）
+- **Kubernetes Secret V1**: 新增 SA kubeconfig 集群注册、Secret assignment、dry-run/confirm、create/adopt/update/rollback/validate
+- **真实 minikube 验证脚本**: 新增单 namespace E2E 与三目标节点真实拓扑模拟脚本，覆盖 RBAC 负例
+
+### Changed
+- **前端重构**: CertManagementPage 从 1019 行拆分为 4 个组件（主页面 + CertFilters + CertTable + CertDetailDrawer）
+- **前端重构**: AgentsPage 从 538 行拆分为 4 个组件（主页面 + AgentStatsCards + AgentTable + AgentDetailPage）
+- **登录页断言**: E2E 测试从 "Agent 管理" 更新为 "Agent 舰队"
+- **证书页断言**: E2E 测试从 "证书管理" 更新为 "证书资产"，筛选按钮从 "正常" 更新为 "健康"
+- **Kubernetes 凭据更新**: 更新 cluster kubeconfig 后自动对该 cluster 下活跃 assignment 执行只读 validate
+
+### Removed
+- 无旧组件残留，所有旧版组件已在之前重构中清理
+
 ## [0.2.0] - 2026-04-08
 
 ### Added
