@@ -10,9 +10,11 @@ Authentication:
 
 import logging
 import os
+import secrets
+from typing import Annotated
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -49,6 +51,16 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 
+FingerprintQuery = Annotated[
+    str,
+    Query(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
+        description="SHA256(DER public key) as lowercase hex",
+    ),
+]
+
 
 # ---------------------------------------------------------------------------
 # Auth helper: resolve agent by X-Agent-Token
@@ -78,6 +90,10 @@ async def _resolve_agent_by_token(
             detail="Invalid or inactive agent token",
         )
     return agent
+
+
+def _fingerprints_match(stored: str | None, presented: str) -> bool:
+    return stored is not None and secrets.compare_digest(stored, presented)
 
 
 async def _get_active_rollout_item(
@@ -259,7 +275,7 @@ async def register_agent(
         )
 
     # Existing agent
-    if existing.fingerprint != body.fingerprint:
+    if not _fingerprints_match(existing.fingerprint, body.fingerprint):
         logger.warning(
             "Fingerprint mismatch for agent '%s': presented=%s, stored=%s",
             body.name,
@@ -308,7 +324,7 @@ async def register_agent(
 )
 async def register_status(
     agent_id: str,
-    fingerprint: str,
+    fingerprint: FingerprintQuery,
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
@@ -328,7 +344,7 @@ async def register_status(
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    if agent.fingerprint != fingerprint:
+    if not _fingerprints_match(agent.fingerprint, fingerprint):
         raise HTTPException(status_code=403, detail="Fingerprint mismatch")
 
     if agent.status == AgentStatus.ACTIVE and agent.agent_token:

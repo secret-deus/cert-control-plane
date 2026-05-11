@@ -84,7 +84,13 @@ class AgentRegisterRequest(BaseModel):
     """Agent TOFU registration request: send name + public key fingerprint."""
 
     name: str = Field(..., min_length=1, max_length=255)
-    fingerprint: str = Field(..., description="SHA256(DER public key) as hex")
+    fingerprint: str = Field(
+        ...,
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
+        description="SHA256(DER public key) as lowercase hex",
+    )
 
 
 class AgentRegisterResponse(BaseModel):

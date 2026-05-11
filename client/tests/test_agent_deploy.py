@@ -45,6 +45,26 @@ def test_deploy_cert_update_success(tmp_path: Path):
     assert not chain_path.with_suffix(".chain.crt.old").exists()
 
 
+def test_deploy_cert_update_runs_reload_without_shell(tmp_path: Path):
+    local_path = tmp_path / "nginx" / "api.crt"
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+
+    update = {
+        "local_path": str(local_path),
+        "cert_pem": "new-cert",
+    }
+
+    with patch("subprocess.run", return_value=Mock(returncode=0, stderr="")) as run_mock:
+        _deploy_cert_update(_make_config("nginx -s reload"), update)
+
+    run_mock.assert_called_once_with(
+        ["nginx", "-s", "reload"],
+        shell=False,
+        capture_output=True,
+        text=True,
+    )
+
+
 def test_deploy_cert_update_restores_files_on_reload_failure(tmp_path: Path):
     local_path = tmp_path / "nginx" / "api.crt"
     key_path = local_path.with_suffix(".key")

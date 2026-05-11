@@ -234,6 +234,23 @@ class TestRegister:
         assert resp.status_code == 403
         assert "rejected" in resp.json()["detail"].lower()
 
+    @pytest.mark.asyncio
+    async def test_invalid_fingerprint_format_returns_422(self, client):
+        """Registration accepts only lowercase 64-char SHA-256 hex fingerprints."""
+        mock_db = AsyncMock()
+        mock_db.execute.return_value = _make_result(None)
+
+        from app.database import get_db
+        client._transport.app.dependency_overrides[get_db] = lambda: mock_db
+
+        resp = await client.post("/api/agent/register", json={
+            "name": "bad-fingerprint-agent",
+            "fingerprint": "not-a-sha256-hex",
+        })
+
+        assert resp.status_code == 422
+        mock_db.execute.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # Tests: GET /api/agent/register/status
@@ -335,6 +352,22 @@ class TestRegisterStatus:
         )
 
         assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_invalid_fingerprint_format_returns_422(self, client):
+        """Status polling rejects malformed fingerprints before database lookup."""
+        mock_db = AsyncMock()
+
+        from app.database import get_db
+        client._transport.app.dependency_overrides[get_db] = lambda: mock_db
+
+        resp = await client.get(
+            "/api/agent/register/status",
+            params={"agent_id": str(uuid.uuid4()), "fingerprint": "A" * 64},
+        )
+
+        assert resp.status_code == 422
+        mock_db.get.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

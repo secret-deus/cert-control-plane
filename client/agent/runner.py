@@ -15,6 +15,7 @@ Lifecycle:
 """
 
 import logging
+import shlex
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -263,9 +264,10 @@ def _deploy_cert_update(config: AgentConfig, update: dict) -> None:
         # Reload nginx
         import subprocess
         if config.nginx_reload_cmd:
+            reload_args = shlex.split(config.nginx_reload_cmd)
             result = subprocess.run(
-                config.nginx_reload_cmd,
-                shell=True,
+                reload_args,
+                shell=False,
                 capture_output=True,
                 text=True,
             )

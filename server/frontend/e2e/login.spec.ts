@@ -52,4 +52,16 @@ test.describe('Dashboard Login', () => {
     // Should not show login prompt again
     await expect(page.locator('input[type="password"]')).not.toBeVisible();
   });
+
+  test('should clear expired API key session', async ({ page }) => {
+    await page.addInitScript(() => {
+      sessionStorage.setItem('admin_api_key', 'expired-test-key');
+      sessionStorage.setItem('admin_api_key_last_active', '1');
+    });
+
+    await page.goto('/dashboard');
+
+    await expect(page.locator('input[type="password"]')).toBeVisible();
+    await expect(page.evaluate(() => sessionStorage.getItem('admin_api_key'))).resolves.toBeNull();
+  });
 });

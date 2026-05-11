@@ -103,6 +103,7 @@ bash tools/agent-smoke/run-live-smoke.sh
 - 当前代码已 commit，测试环境使用固定 commit 或镜像 tag。
 - `.env` 不进入 git。
 - Dashboard 可登录并访问 `/dashboard`。
+- Dashboard API Key session 30 分钟无活动后会自动清除，需要重新登录。
 - Agent 列表能看到真实节点 hostname/name、状态和最近心跳。
 - 证书替换后，目标机器或目标 Secret 的 serial 与控制面 active cert 一致。
 - 失败 reload 场景会回滚旧证书和旧私钥。
