@@ -23,6 +23,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 os.environ["DEV_MODE"] = "false"
 
 from app.core.rate_limit import reset_rate_limits  # noqa: E402
+from app.core.security import hash_token  # noqa: E402
 from app.models import Agent, AgentStatus, ExternalCertificate  # noqa: E402
 
 
@@ -41,7 +42,7 @@ def mock_agent() -> Agent:
     agent.name = "test-agent-01"
     agent.status = AgentStatus.ACTIVE
     agent.fingerprint = "a" * 64   # SHA-256 hex
-    agent.agent_token = "test-agent-token-secret"
+    agent.agent_token_hash = hash_token("test-agent-token-secret")
     agent.last_seen = None
     return agent
 

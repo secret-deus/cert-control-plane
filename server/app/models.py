@@ -119,8 +119,8 @@ class Agent(Base):
     )
     # SHA-256 fingerprint of agent's public key (TOFU identity)
     fingerprint: Mapped[str | None] = mapped_column(String(64), unique=True)
-    # Secret token issued after admin approval; used in X-Agent-Token header
-    agent_token: Mapped[str | None] = mapped_column(String(128), unique=True)
+    # SHA-256 hash of X-Agent-Token. Plaintext token is returned once and never stored.
+    agent_token_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
     last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Cert paths reported by agent during fetch-certs (JSON list of local_path strings)
     cert_paths: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)

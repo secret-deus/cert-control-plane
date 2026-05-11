@@ -20,6 +20,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 from httpx import ASGITransport, AsyncClient
 
+from app.core.security import hash_token
 from app.models import (
     Agent,
     AgentStatus,
@@ -74,7 +75,7 @@ def _make_agent(
     agent.description = None
     agent.status = status
     agent.fingerprint = "a" * 64
-    agent.agent_token = agent_token
+    agent.agent_token_hash = hash_token(agent_token) if agent_token else None
     agent.last_seen = None
     agent.created_at = datetime.now(tz=timezone.utc)
     return agent
@@ -271,7 +272,7 @@ class TestAgentsAPI:
         from app.database import get_db
         client._transport.app.dependency_overrides[get_db] = lambda: mock_db
 
-        with patch("app.api.control.write_audit", new_callable=AsyncMock):
+        with patch("app.api.control.agents.write_audit", new_callable=AsyncMock):
             resp = await client.post("/api/control/agents", json={
                 "name": "new-agent",
                 "description": "Test agent",
@@ -308,7 +309,7 @@ class TestAgentsAPI:
         from app.database import get_db
         client._transport.app.dependency_overrides[get_db] = lambda: mock_db
 
-        with patch("app.api.control.write_audit", new_callable=AsyncMock):
+        with patch("app.api.control.agents.write_audit", new_callable=AsyncMock):
             resp = await client.delete(f"/api/control/agents/{agent.id}")
 
         assert resp.status_code == 204
@@ -339,7 +340,7 @@ class TestAgentsAPI:
         from app.database import get_db
         client._transport.app.dependency_overrides[get_db] = lambda: mock_db
 
-        with patch("app.api.control.write_audit", new_callable=AsyncMock):
+        with patch("app.api.control.agents.write_audit", new_callable=AsyncMock):
             resp = await client.post(f"/api/control/agents/{agent.id}/approve")
 
         assert resp.status_code == 200
@@ -391,7 +392,7 @@ class TestAgentsAPI:
         from app.database import get_db
         client._transport.app.dependency_overrides[get_db] = lambda: mock_db
 
-        with patch("app.api.control.write_audit", new_callable=AsyncMock):
+        with patch("app.api.control.agents.write_audit", new_callable=AsyncMock):
             resp = await client.post(f"/api/control/agents/{agent.id}/reject")
 
         assert resp.status_code == 200
@@ -567,7 +568,7 @@ class TestRolloutsAPI:
         from app.database import get_db
         client._transport.app.dependency_overrides[get_db] = lambda: mock_db
 
-        with patch("app.api.control.write_audit", new_callable=AsyncMock):
+        with patch("app.api.control.rollouts.write_audit", new_callable=AsyncMock):
             resp = await client.post(f"/api/control/rollouts/{rollout.id}/start")
 
         assert resp.status_code == 200
@@ -600,9 +601,9 @@ class TestRolloutsAPI:
         from app.database import get_db
         client._transport.app.dependency_overrides[get_db] = lambda: mock_db
 
-        with patch("app.api.control.pause_rollout") as mock_pause:
+        with patch("app.api.control.rollouts.pause_rollout") as mock_pause:
             mock_pause.return_value = rollout
-            with patch("app.api.control.write_audit", new_callable=AsyncMock):
+            with patch("app.api.control.rollouts.write_audit", new_callable=AsyncMock):
                 resp = await client.post(f"/api/control/rollouts/{rollout.id}/pause")
 
         assert resp.status_code == 200
@@ -619,9 +620,9 @@ class TestRolloutsAPI:
         from app.database import get_db
         client._transport.app.dependency_overrides[get_db] = lambda: mock_db
 
-        with patch("app.api.control.resume_rollout") as mock_resume:
+        with patch("app.api.control.rollouts.resume_rollout") as mock_resume:
             mock_resume.return_value = rollout
-            with patch("app.api.control.write_audit", new_callable=AsyncMock):
+            with patch("app.api.control.rollouts.write_audit", new_callable=AsyncMock):
                 resp = await client.post(f"/api/control/rollouts/{rollout.id}/resume")
 
         assert resp.status_code == 200

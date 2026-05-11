@@ -14,7 +14,14 @@ from app.api.control import router as control_router
 from app.api.dashboard import router as dashboard_router
 from app.config import get_settings
 from app.core.logging_config import setup_logging
-from app.database import check_db, create_tables, dispose_engine
+from app.core.metrics import (
+    collect_db_metrics,
+    collect_distribution_metrics,
+    collect_request_metrics,
+    normalize_path,
+    record_request,
+)
+from app.database import AsyncSessionLocal, check_db, create_tables, dispose_engine
 from app.orchestrator.rollout import advance_all_rollouts
 import app.models  # noqa: F401  ensure models registered with Base
 
@@ -136,6 +143,17 @@ def create_app() -> FastAPI:
             response.headers.setdefault(name, value)
         return response
 
+    @app.middleware("http")
+    async def metrics_middleware(request: Request, call_next):
+        if request.url.path in ("/metrics", "/healthz", "/readyz"):
+            return await call_next(request)
+        start = time.time()
+        response = await call_next(request)
+        duration = time.time() - start
+        path = normalize_path(request.url.path)
+        record_request(request.method, path, response.status_code, duration)
+        return response
+
     from fastapi.middleware.cors import CORSMiddleware
     app.add_middleware(
         CORSMiddleware,
@@ -183,6 +201,32 @@ def create_app() -> FastAPI:
             "# TYPE certcp_uptime_seconds gauge",
             f"certcp_uptime_seconds {uptime:.0f}",
         ]
+
+        # Business metrics from DB
+        try:
+            async with AsyncSessionLocal() as session:
+                db_metrics = await collect_db_metrics(session)
+                if db_metrics:
+                    lines.append(db_metrics)
+        except Exception:
+            logger.debug("Failed to collect DB metrics", exc_info=True)
+
+        # Request counter and duration histogram
+        try:
+            req_metrics = collect_request_metrics()
+            if req_metrics:
+                lines.append(req_metrics)
+        except Exception:
+            logger.debug("Failed to collect request metrics", exc_info=True)
+
+        # Distribution counter
+        try:
+            dist_metrics = collect_distribution_metrics()
+            if dist_metrics:
+                lines.append(dist_metrics)
+        except Exception:
+            logger.debug("Failed to collect distribution metrics", exc_info=True)
+
         return "\n".join(lines) + "\n"
 
     # SPA catch-all: serve index.html for all non-API routes (must be last)

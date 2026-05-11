@@ -13,6 +13,7 @@
     "test:e2e:debug": "playwright test --debug"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.75.0",
     "@tailwindcss/vite": "^4.2.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",

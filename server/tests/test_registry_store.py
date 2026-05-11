@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import get_settings
+from app.core.security import hash_token
 from app.database import Base
 from app.models import (
     Agent,
@@ -55,7 +56,7 @@ async def setup_agent_and_cert(db_session):
         name="test-registry-agent",
         status=AgentStatus.ACTIVE,
         fingerprint="a" * 64,
-        agent_token="test-token",
+        agent_token_hash=hash_token("test-token"),
     )
     db_session.add(agent)
 

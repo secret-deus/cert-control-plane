@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, ShieldCheck, Wifi, Clock, RefreshCw, Activity } from 'lucide-react';
 import { formatDistanceToNow, format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
-import { apiFetch } from '../lib/api';
+import { apiFetch, queryKeys } from '../lib/api';
 import CertExpiryTrend from './CertExpiryTrend';
 
 interface AuditEvent {
@@ -133,64 +134,40 @@ function formatDetails(event: AuditEvent): string {
 }
 
 export default function Dashboard() {
-  const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [agents, setAgents] = useState<AgentHealth[]>([]);
-  const [externalCerts, setExternalCerts] = useState<ExternalCert[]>([]);
-  const [alertData, setAlertData] = useState<CertAlertResponse | null>(null);
-  const [events, setEvents] = useState<AuditEvent[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const queryClient = useQueryClient();
 
-  const fetchData = useCallback(async () => {
-    setIsLoading(true);
+  const { data: summary, isLoading: summaryLoading } = useQuery({
+    queryKey: queryKeys.dashboardSummary,
+    queryFn: () => apiFetch<DashboardSummary>('/dashboard/summary'),
+  });
 
-    try {
-      const [summaryData, healthData, alertsData, extCertsData, eventsData] = await Promise.all([
-        apiFetch<DashboardSummary>('/dashboard/summary'),
-        apiFetch<AgentHealth[]>('/dashboard/agents-health'),
-        apiFetch<CertAlertResponse>('/dashboard/cert-alerts'),
-        apiFetch<{ items: ExternalCert[]; total: number }>('/external-certs?limit=100'),
-        apiFetch<AuditEvent[]>('/dashboard/events'),
-      ]);
+  const { data: agents = [], isLoading: agentsLoading } = useQuery({
+    queryKey: queryKeys.dashboardHealth,
+    queryFn: () => apiFetch<AgentHealth[]>('/dashboard/agents-health'),
+  });
 
-      setSummary(summaryData);
-      setAgents(healthData);
-      setAlertData(alertsData);
-      setExternalCerts(extCertsData.items);
-      setEvents(eventsData);
-    } catch (error) {
-      console.error('Failed to fetch dashboard data:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+  const { data: alertData } = useQuery({
+    queryKey: queryKeys.dashboardAlerts,
+    queryFn: () => apiFetch<CertAlertResponse>('/dashboard/cert-alerts'),
+  });
 
-  const handleRefresh = useCallback(async () => {
-    setIsRefreshing(true);
-    try {
-      const [summaryData, healthData, alertsData, extCertsData, eventsData] = await Promise.all([
-        apiFetch<DashboardSummary>('/dashboard/summary'),
-        apiFetch<AgentHealth[]>('/dashboard/agents-health'),
-        apiFetch<CertAlertResponse>('/dashboard/cert-alerts'),
-        apiFetch<{ items: ExternalCert[]; total: number }>('/external-certs?limit=100'),
-        apiFetch<AuditEvent[]>('/dashboard/events'),
-      ]);
+  const { data: extCertsData } = useQuery({
+    queryKey: queryKeys.externalCerts(),
+    queryFn: () => apiFetch<{ items: ExternalCert[]; total: number }>('/external-certs?limit=100'),
+  });
 
-      setSummary(summaryData);
-      setAgents(healthData);
-      setAlertData(alertsData);
-      setExternalCerts(extCertsData.items);
-      setEvents(eventsData);
-    } catch (error) {
-      console.error('Failed to refresh dashboard data:', error);
-    } finally {
-      setIsRefreshing(false);
-    }
-  }, []);
+  const { data: events = [] } = useQuery({
+    queryKey: queryKeys.dashboardEvents,
+    queryFn: () => apiFetch<AuditEvent[]>('/dashboard/events'),
+  });
 
-  useEffect(() => {
-    void fetchData();
-  }, [fetchData]);
+  const externalCerts = useMemo(() => extCertsData?.items ?? [], [extCertsData]);
+  const isLoading = summaryLoading || agentsLoading;
+
+  const handleRefresh = () => {
+    void queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.externalCerts() });
+  };
 
   const onlineAgents = agents.filter((agent) => agent.liveness === 'online').length;
   const delayedAgents = agents.filter((agent) => agent.liveness === 'delayed').length;
@@ -307,11 +284,11 @@ export default function Dashboard() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold text-white">Dashboard</h1>
         <button
-          onClick={() => handleRefresh()}
-          disabled={isRefreshing}
+          onClick={handleRefresh}
+          disabled={isLoading}
           className="flex items-center gap-2 rounded-[14px] border border-white/6 bg-white/[0.03] px-3 py-2 text-sm text-white/70 transition hover:bg-white/[0.06] hover:text-white disabled:opacity-50"
         >
-          <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
+          <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
           刷新
         </button>
       </div>

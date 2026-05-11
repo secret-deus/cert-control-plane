@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     # Development mode (bypass agent token auth for local testing)
     dev_mode: bool = False
 
+    # Redis (optional – enables distributed rate limiting)
+    redis_url: str = ""  # e.g. "redis://localhost:6379/0"
+
     # Basic in-process rate limits. Use an upstream gateway for distributed limits.
     rate_limit_agent_register_per_minute: int = 10
     rate_limit_register_status_per_minute: int = 60

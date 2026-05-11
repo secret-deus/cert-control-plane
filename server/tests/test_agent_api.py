@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.core.security import hash_token
 from app.models import Agent, AgentCertAssignment, AgentStatus, ExternalCertificate
 
 
@@ -36,14 +37,14 @@ def _make_agent(
     *,
     status: AgentStatus = AgentStatus.PENDING_APPROVAL,
     fingerprint: str | None = "aabbcc" * 10 + "aabb",  # 64 hex chars
-    agent_token: str | None = None,
+    agent_token_hash: str | None = None,
 ) -> Agent:
     agent = MagicMock(spec=Agent)
     agent.id = uuid.uuid4()
     agent.name = name
     agent.status = status
     agent.fingerprint = fingerprint
-    agent.agent_token = agent_token
+    agent.agent_token_hash = agent_token_hash
     agent.last_seen = None
     return agent
 
@@ -120,13 +121,14 @@ class TestRegister:
         assert data["agent_token"] is None
 
     @pytest.mark.asyncio
-    async def test_existing_approved_agent_returns_token(self, client):
-        """Matching fingerprint + active agent → returns approved + token."""
-        token = "secret-agent-token"
-        agent = _make_agent(status=AgentStatus.ACTIVE, agent_token=token)
+    async def test_existing_approved_agent_without_hash_issues_token_once(self, client):
+        """Matching fingerprint + active agent with no token hash issues a one-time token."""
+        agent = _make_agent(status=AgentStatus.ACTIVE, agent_token_hash=None)
 
         mock_db = AsyncMock()
         mock_db.execute.return_value = _make_result(agent)  # Existing agent found
+        mock_db.commit = AsyncMock()
+        mock_db.add = MagicMock()
 
         from app.database import get_db
         client._transport.app.dependency_overrides[get_db] = lambda: mock_db
@@ -139,7 +141,30 @@ class TestRegister:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "approved"
-        assert data["agent_token"] == token
+        assert data["agent_token"]
+        assert agent.agent_token_hash == hash_token(data["agent_token"])
+        mock_db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_existing_approved_agent_with_hash_does_not_reissue_token(self, client):
+        """Matching fingerprint + already issued token hash returns approved without plaintext."""
+        agent = _make_agent(status=AgentStatus.ACTIVE, agent_token_hash=hash_token("secret-agent-token"))
+
+        mock_db = AsyncMock()
+        mock_db.execute.return_value = _make_result(agent)
+
+        from app.database import get_db
+        client._transport.app.dependency_overrides[get_db] = lambda: mock_db
+
+        resp = await client.post("/api/agent/register", json={
+            "name": agent.name,
+            "fingerprint": agent.fingerprint,
+        })
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "approved"
+        assert data["agent_token"] is None
 
     @pytest.mark.asyncio
     async def test_fingerprint_mismatch_returns_403(self, client):
@@ -163,7 +188,7 @@ class TestRegister:
     @pytest.mark.asyncio
     async def test_pending_agent_returns_pending(self, client):
         """Existing agent still pending → returns status=pending (no token)."""
-        agent = _make_agent(status=AgentStatus.PENDING_APPROVAL, agent_token=None)
+        agent = _make_agent(status=AgentStatus.PENDING_APPROVAL)
 
         mock_db = AsyncMock()
         mock_db.execute.return_value = _make_result(agent)
@@ -187,7 +212,7 @@ class TestRegister:
         agent = _make_agent(
             status=AgentStatus.PENDING_APPROVAL,
             fingerprint=None,
-            agent_token=None,
+            agent_token_hash=None,
         )
 
         mock_db = AsyncMock()
@@ -217,7 +242,7 @@ class TestRegister:
         agent = _make_agent(
             status=AgentStatus.REVOKED,
             fingerprint="d" * 64,
-            agent_token=None,
+            agent_token_hash=None,
         )
 
         mock_db = AsyncMock()
@@ -261,9 +286,33 @@ class TestRegisterStatus:
 
     @pytest.mark.asyncio
     async def test_approved_returns_token(self, client):
-        """Approved agent → status=approved + agent_token."""
-        token = "my-secret-token"
-        agent = _make_agent(status=AgentStatus.ACTIVE, agent_token=token)
+        """First approved status poll issues a one-time token."""
+        agent = _make_agent(status=AgentStatus.ACTIVE, agent_token_hash=None)
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=agent)
+        mock_db.commit = AsyncMock()
+        mock_db.add = MagicMock()
+
+        from app.database import get_db
+        client._transport.app.dependency_overrides[get_db] = lambda: mock_db
+
+        resp = await client.get(
+            "/api/agent/register/status",
+            params={"agent_id": str(agent.id), "fingerprint": agent.fingerprint},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "approved"
+        assert data["agent_token"]
+        assert agent.agent_token_hash == hash_token(data["agent_token"])
+        mock_db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_approved_with_existing_hash_does_not_return_token(self, client):
+        """Approved agent with issued hash does not expose plaintext token again."""
+        agent = _make_agent(status=AgentStatus.ACTIVE, agent_token_hash=hash_token("issued-token"))
 
         mock_db = AsyncMock()
         mock_db.get = AsyncMock(return_value=agent)
@@ -279,12 +328,12 @@ class TestRegisterStatus:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "approved"
-        assert data["agent_token"] == token
+        assert data["agent_token"] is None
 
     @pytest.mark.asyncio
     async def test_pending_returns_pending(self, client):
         """Still-pending agent → status=pending_approval, no token."""
-        agent = _make_agent(status=AgentStatus.PENDING_APPROVAL, agent_token=None)
+        agent = _make_agent(status=AgentStatus.PENDING_APPROVAL)
 
         mock_db = AsyncMock()
         mock_db.get = AsyncMock(return_value=agent)
@@ -303,7 +352,7 @@ class TestRegisterStatus:
     @pytest.mark.asyncio
     async def test_revoked_returns_rejected(self, client):
         """Revoked agent → status=rejected."""
-        agent = _make_agent(status=AgentStatus.REVOKED, agent_token=None)
+        agent = _make_agent(status=AgentStatus.REVOKED)
 
         mock_db = AsyncMock()
         mock_db.get = AsyncMock(return_value=agent)
@@ -381,7 +430,7 @@ class TestHeartbeat:
     async def test_heartbeat_with_valid_token(self, client):
         """Valid X-Agent-Token → 200, acknowledged=True."""
         token = "valid-agent-token"
-        agent = _make_agent(status=AgentStatus.ACTIVE, agent_token=token)
+        agent = _make_agent(status=AgentStatus.ACTIVE, agent_token_hash=hash_token(token))
 
         mock_db = AsyncMock()
         mock_db.execute.return_value = _make_result(agent)
@@ -442,7 +491,7 @@ class TestFetchCerts:
     async def test_no_assignment_returns_no_update(self, client):
         """local_path has no assignment → has_update=False."""
         token = "agent-token"
-        agent = _make_agent(status=AgentStatus.ACTIVE, agent_token=token)
+        agent = _make_agent(status=AgentStatus.ACTIVE, agent_token_hash=hash_token(token))
 
         call_count = 0
 
@@ -479,7 +528,7 @@ class TestFetchCerts:
     async def test_newer_cert_returns_update(self, client):
         """Assignment exists, server cert is newer → has_update=True with cert data."""
         token = "agent-token"
-        agent = _make_agent(status=AgentStatus.ACTIVE, agent_token=token)
+        agent = _make_agent(status=AgentStatus.ACTIVE, agent_token_hash=hash_token(token))
 
         ext_cert = _make_ext_cert(
             not_after=datetime.now(tz=timezone.utc) + timedelta(days=365)
@@ -535,7 +584,7 @@ class TestFetchCerts:
     async def test_unreported_assigned_path_in_reported_dir_returns_update(self, client):
         """New assigned path should be returned when it is under a reported cert directory."""
         token = "agent-token"
-        agent = _make_agent(status=AgentStatus.ACTIVE, agent_token=token)
+        agent = _make_agent(status=AgentStatus.ACTIVE, agent_token_hash=hash_token(token))
 
         ext_cert = _make_ext_cert(
             not_after=datetime.now(tz=timezone.utc) + timedelta(days=365)
@@ -591,7 +640,7 @@ class TestFetchCerts:
     async def test_unreported_assigned_path_outside_reported_dir_is_ignored(self, client):
         """New assigned path should not be returned when it is outside reported cert directories."""
         token = "agent-token"
-        agent = _make_agent(status=AgentStatus.ACTIVE, agent_token=token)
+        agent = _make_agent(status=AgentStatus.ACTIVE, agent_token_hash=hash_token(token))
 
         ext_cert = _make_ext_cert(
             not_after=datetime.now(tz=timezone.utc) + timedelta(days=365)
@@ -642,7 +691,7 @@ class TestFetchCerts:
     async def test_unreported_assigned_path_uses_snapshot_to_avoid_repeat_deploy(self, client):
         """Already deployed unreported path should not be repeatedly returned as an update."""
         token = "agent-token"
-        agent = _make_agent(status=AgentStatus.ACTIVE, agent_token=token)
+        agent = _make_agent(status=AgentStatus.ACTIVE, agent_token_hash=hash_token(token))
 
         ext_cert = _make_ext_cert(
             not_after=datetime.now(tz=timezone.utc) + timedelta(days=365)
@@ -697,7 +746,7 @@ class TestFetchCerts:
     async def test_up_to_date_cert_returns_no_update(self, client):
         """Current not_after matches or is newer than server → has_update=False."""
         token = "agent-token"
-        agent = _make_agent(status=AgentStatus.ACTIVE, agent_token=token)
+        agent = _make_agent(status=AgentStatus.ACTIVE, agent_token_hash=hash_token(token))
 
         server_not_after = datetime.now(tz=timezone.utc) + timedelta(days=365)
         ext_cert = _make_ext_cert(not_after=server_not_after)
@@ -750,7 +799,7 @@ class TestReportCerts:
     async def test_report_certs_records_deployment(self, client):
         """Agent reports deployed certs → records Certificate snapshots."""
         token = "agent-token"
-        agent = _make_agent(status=AgentStatus.ACTIVE, agent_token=token)
+        agent = _make_agent(status=AgentStatus.ACTIVE, agent_token_hash=hash_token(token))
 
         ext_cert = _make_ext_cert()
         assignment = MagicMock(spec=AgentCertAssignment)
@@ -806,7 +855,7 @@ class TestReportCerts:
     async def test_report_certs_skips_unassigned_paths(self, client):
         """Paths without assignments are skipped."""
         token = "agent-token"
-        agent = _make_agent(status=AgentStatus.ACTIVE, agent_token=token)
+        agent = _make_agent(status=AgentStatus.ACTIVE, agent_token_hash=hash_token(token))
 
         call_count = 0
 

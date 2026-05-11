@@ -22,6 +22,7 @@ from app.config import get_settings
 from app.core.audit import write_audit
 from app.core.crypto import decrypt_key
 from app.core.rate_limit import check_rate_limit, client_ip
+from app.core.security import generate_agent_token, hash_token
 from app.database import get_db
 from app.models import (
     Agent,
@@ -71,15 +72,22 @@ async def _resolve_agent_by_token(
     x_agent_token: str | None,
     db: AsyncSession,
 ) -> Agent:
-    """Resolve X-Agent-Token header to an active Agent."""
+    """Resolve X-Agent-Token header to an active Agent.
+
+    The plaintext token is never stored. The request token is hashed and matched
+    against agents.agent_token_hash.
+    """
     if not x_agent_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="X-Agent-Token header is required",
         )
+
+    token_hash = hash_token(x_agent_token)
+
     result = await db.execute(
         select(Agent).where(
-            Agent.agent_token == x_agent_token,
+            Agent.agent_token_hash == token_hash,
             Agent.status == AgentStatus.ACTIVE,
         )
     )
@@ -90,6 +98,14 @@ async def _resolve_agent_by_token(
             detail="Invalid or inactive agent token",
         )
     return agent
+
+
+async def _issue_agent_token(db: AsyncSession, agent: Agent) -> str:
+    token, token_hash = generate_agent_token()
+    agent.agent_token_hash = token_hash
+    db.add(agent)
+    await db.commit()
+    return token
 
 
 def _fingerprints_match(stored: str | None, presented: str) -> bool:
@@ -287,13 +303,15 @@ async def register_agent(
             detail="Fingerprint mismatch – potential impersonation attempt",
         )
 
-    if existing.status == AgentStatus.ACTIVE and existing.agent_token:
-        # Already approved – return token directly
+    if existing.status == AgentStatus.ACTIVE:
+        token = None
+        if not existing.agent_token_hash:
+            token = await _issue_agent_token(db, existing)
         return AgentRegisterResponse(
             status="approved",
             agent_id=existing.id,
-            agent_token=existing.agent_token,
-            message="Agent is approved and active.",
+            agent_token=token,
+            message="Agent is approved and active." if token else "Agent is already active.",
         )
 
     if existing.status == AgentStatus.REVOKED:
@@ -347,10 +365,13 @@ async def register_status(
     if not _fingerprints_match(agent.fingerprint, fingerprint):
         raise HTTPException(status_code=403, detail="Fingerprint mismatch")
 
-    if agent.status == AgentStatus.ACTIVE and agent.agent_token:
+    if agent.status == AgentStatus.ACTIVE:
+        token = None
+        if not agent.agent_token_hash:
+            token = await _issue_agent_token(db, agent)
         return AgentRegisterStatusResponse(
             status="approved",
-            agent_token=agent.agent_token,
+            agent_token=token,
         )
     elif agent.status == AgentStatus.REVOKED:
         return AgentRegisterStatusResponse(status="rejected")

@@ -1,8 +1,9 @@
-"""Admin API key validation and agent token generation."""
+"""Admin API key validation, agent token generation and permission utilities."""
 
+import hashlib
 import secrets
 
-from fastapi import HTTPException, Request, Security, status
+from fastapi import Depends, HTTPException, Request, Security, status
 from fastapi.security import APIKeyHeader
 
 from app.config import get_settings
@@ -11,9 +12,19 @@ from app.core.rate_limit import check_rate_limit, client_ip
 _api_key_header = APIKeyHeader(name="X-Admin-API-Key", auto_error=False)
 
 
-def generate_agent_token() -> str:
-    """Generate a cryptographically random agent token (48-byte hex)."""
-    return secrets.token_hex(48)
+def hash_token(token: str) -> str:
+    """Compute SHA-256 hash of an agent token."""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def generate_agent_token() -> tuple[str, str]:
+    """Generate a cryptographically random agent token (48-byte hex) and its SHA-256 hash.
+
+    Returns:
+        (plaintext_token, token_hash) tuple
+    """
+    token = secrets.token_hex(48)
+    return token, hash_token(token)
 
 
 def verify_admin_key(
@@ -34,3 +45,27 @@ def verify_admin_key(
             detail="Invalid or missing Admin API key",
         )
     return api_key
+
+
+class ForbiddenError(HTTPException):
+    """权限不足异常 - 用于未来 RBAC 权限检查"""
+
+    def __init__(self, detail: str = "Permission denied"):
+        super().__init__(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=detail,
+        )
+
+
+def require_permission(permission: str):
+    """预留的权限检查依赖 - 当前仅验证 admin key，未来扩展为 RBAC。
+
+    Usage: @router.get("/...", dependencies=[Depends(require_permission("agents:write"))])
+    """
+
+    def _check(api_key: str = Depends(verify_admin_key)):
+        # 当前阶段：通过 admin key 验证即可
+        # 未来 RBAC：根据 api_key 查询角色，检查 permission
+        return api_key
+
+    return Depends(_check)

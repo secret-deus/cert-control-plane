@@ -7,6 +7,8 @@ import CertManagementPage from './components/CertManagementPage';
 import AgentsPage from './components/AgentsPage';
 import SettingsPage from './components/SettingsPage';
 import KubernetesPage from './components/KubernetesPage';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { QueryProvider } from './components/QueryProvider';
 
 const ADMIN_API_KEY_STORAGE_KEY = 'admin_api_key';
 const ADMIN_API_KEY_LAST_ACTIVE_KEY = 'admin_api_key_last_active';
@@ -43,6 +45,15 @@ function App() {
   const [apiKey, setApiKey] = useState<string | null>(() => readStoredApiKey());
 
   useEffect(() => {
+    const handleAuthExpired = () => {
+      clearStoredSession();
+      setApiKey(null);
+    };
+    window.addEventListener('auth:expired', handleAuthExpired);
+    return () => window.removeEventListener('auth:expired', handleAuthExpired);
+  }, []);
+
+  useEffect(() => {
     if (!apiKey) {
       return;
     }
@@ -72,22 +83,26 @@ function App() {
   }
 
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route element={<Layout onLogout={() => {
-          clearStoredSession();
-          setApiKey(null);
-        }} />}>
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/certificates" element={<CertManagementPage />} />
-          <Route path="/agents" element={<AgentsPage />} />
-          <Route path="/agents/:id" element={<AgentsPage />} />
-          <Route path="/kubernetes" element={<KubernetesPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
+    <ErrorBoundary>
+      <QueryProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route element={<Layout onLogout={() => {
+              clearStoredSession();
+              setApiKey(null);
+            }} />}>
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/certificates" element={<CertManagementPage />} />
+              <Route path="/agents" element={<AgentsPage />} />
+              <Route path="/agents/:id" element={<AgentsPage />} />
+              <Route path="/kubernetes" element={<KubernetesPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </QueryProvider>
+    </ErrorBoundary>
   );
 }
 

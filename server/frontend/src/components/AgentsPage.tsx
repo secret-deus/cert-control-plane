@@ -1,7 +1,8 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, RefreshCw, Search } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { apiDelete, apiFetch, apiPost } from '../lib/api';
+import { apiDelete, apiFetch, apiPost, queryKeys } from '../lib/api';
 import AgentStatsCards from './AgentStatsCards';
 import AgentTable from './AgentTable';
 import AgentDetailPage from './AgentDetailPage';
@@ -50,11 +51,10 @@ function normalizeLiveness(value: string | null | undefined): AgentLiveness {
 
 export default function AgentsPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { id: routeAgentId } = useParams();
-  const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<AgentDetail | null>(null);
   const [localSelectedAgentId, setLocalSelectedAgentId] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -67,17 +67,12 @@ export default function AgentsPage() {
 
   const activeAgentId = routeAgentId ?? localSelectedAgentId;
 
-  const fetchData = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const data = await apiFetch<PaginatedResponse<Agent>>('/agents?limit=500');
-      setAgents(data.items || []);
-    } catch (fetchError) {
-      console.error('Failed to fetch agents:', fetchError);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+  const { data: agentsData, isLoading } = useQuery({
+    queryKey: queryKeys.agents(),
+    queryFn: () => apiFetch<PaginatedResponse<Agent>>('/agents?limit=500'),
+  });
+
+  const agents = useMemo(() => agentsData?.items ?? [], [agentsData]);
 
   const loadAgentDetail = useCallback(async (agentId: string) => {
     setIsDetailLoading(true);
@@ -95,10 +90,6 @@ export default function AgentsPage() {
   }, []);
 
   useEffect(() => {
-    void fetchData();
-  }, [fetchData]);
-
-  useEffect(() => {
     if (!routeAgentId && !localSelectedAgentId && agents.length > 0) {
       setLocalSelectedAgentId(agents[0].id);
     }
@@ -114,6 +105,10 @@ export default function AgentsPage() {
     void loadAgentDetail(activeAgentId);
   }, [activeAgentId, loadAgentDetail]);
 
+  const invalidateAgents = () => {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.agents() });
+  };
+
   const handleCreate = async () => {
     if (!newName.trim()) {
       return;
@@ -125,7 +120,7 @@ export default function AgentsPage() {
       setError('');
       setNewName('');
       setShowCreate(false);
-      await fetchData();
+      invalidateAgents();
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : '创建失败');
     }
@@ -136,7 +131,7 @@ export default function AgentsPage() {
       await apiPost(`/agents/${id}/approve`);
       setToast('Agent 已审批');
       setError('');
-      await fetchData();
+      invalidateAgents();
       if (activeAgentId === id) {
         await loadAgentDetail(id);
       }
@@ -154,7 +149,7 @@ export default function AgentsPage() {
       await apiDelete(`/agents/${id}`);
       setToast('Agent 已拒绝');
       setError('');
-      await fetchData();
+      invalidateAgents();
 
       if (routeAgentId === id) {
         navigate('/agents');
@@ -219,7 +214,7 @@ export default function AgentsPage() {
             <button type="button" onClick={() => setShowCreate((current) => !current)} className="btn-primary flex items-center gap-1.5">
               <Plus size={14} /> 预创建 Agent
             </button>
-            <button type="button" onClick={() => void fetchData()} className="btn-secondary flex items-center gap-1.5" disabled={isLoading}>
+            <button type="button" onClick={invalidateAgents} className="btn-secondary flex items-center gap-1.5" disabled={isLoading}>
               <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} /> 刷新舰队
             </button>
           </div>

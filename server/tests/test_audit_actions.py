@@ -26,7 +26,7 @@ def _extract_emitted_actions() -> set[str]:
 
 def _extract_documented_actions() -> set[str]:
     """Parse the documented action list from the GET /audit endpoint description."""
-    control_py = PROJECT_ROOT / "app" / "api" / "control.py"
+    control_py = PROJECT_ROOT / "app" / "api" / "control" / "audit.py"
     text = control_py.read_text(encoding="utf-8")
 
     # Find the description block containing documented audit actions.
@@ -59,7 +59,7 @@ class TestAuditActionAlignment:
         missing = emitted - documented
         assert not missing, (
             f"Actions emitted in code but not documented: {missing}. "
-            f"Update the GET /audit endpoint description in control.py."
+            f"Update the GET /audit endpoint description in control/audit.py."
         )
 
     def test_no_stale_documented_actions(self):

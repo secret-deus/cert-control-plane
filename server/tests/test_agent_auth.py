@@ -15,6 +15,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.agent import _resolve_agent_by_token
+from app.core.security import hash_token
 from app.models import Agent, AgentStatus
 
 
@@ -29,7 +30,7 @@ def _make_active_agent(token: str = "valid-token") -> Agent:
     agent.id = uuid.uuid4()
     agent.name = "test-agent-01"
     agent.status = AgentStatus.ACTIVE
-    agent.agent_token = token
+    agent.agent_token_hash = hash_token(token)
     agent.fingerprint = "a" * 64
     agent.last_seen = None
     return agent
@@ -95,7 +96,7 @@ async def test_accept_valid_token():
 
 @pytest.mark.asyncio
 async def test_token_used_in_db_query():
-    """The token string must be forwarded to the DB query (no truncation)."""
+    """The token must be hashed before the DB query."""
     token = "x" * 64  # Long token
     agent = _make_active_agent(token=token)
 
@@ -104,5 +105,7 @@ async def test_token_used_in_db_query():
 
     result = await _resolve_agent_by_token(token, db)
     assert result is agent
-    # Ensure DB was called exactly once (no retry logic)
     db.execute.assert_awaited_once()
+    query_text = str(db.execute.await_args.args[0])
+    assert "agent_token_hash" in query_text
+    assert token not in query_text

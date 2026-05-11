@@ -23,6 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import get_settings
+from app.core.security import hash_token
 from app.database import Base, get_db
 from app.main import create_app
 from app.models import (
@@ -151,12 +152,19 @@ async def test_external_cert_distribution_flow(integration_client):
     approve_resp = await client.post(f"/api/control/agents/{agent_id}/approve")
     assert approve_resp.status_code == 200
 
+    status_resp = await client.get(
+        "/api/agent/register/status",
+        params={"agent_id": str(agent_id), "fingerprint": fingerprint},
+    )
+    assert status_resp.status_code == 200
+    agent_token = status_resp.json()["agent_token"]
+    assert agent_token
+
     async with session_factory() as session:
         agent = await session.get(Agent, agent_id)
         assert agent is not None
         assert agent.status == AgentStatus.ACTIVE
-        assert agent.agent_token
-        agent_token = agent.agent_token
+        assert agent.agent_token_hash == hash_token(agent_token)
 
     cert_pem, key_pem = _generate_test_certificate("api.example.com")
     upload_resp = await client.post(
@@ -287,7 +295,7 @@ async def test_kubernetes_cluster_credential_update_validates_assignments(integr
             assert secret_name == "api-tls"
             return secret
 
-    with patch("app.api.control._kubernetes_client_from_cluster", return_value=FakeKubernetesClient()):
+    with patch("app.api.control.kubernetes._kubernetes_client_from_cluster", return_value=FakeKubernetesClient()):
         update_resp = await client.put(
             f"/api/control/kubernetes/clusters/{cluster_id}/credentials",
             json={
@@ -407,14 +415,14 @@ async def test_rollout_gates_updates_and_records_deployment(integration_client):
                 name="rollout-agent-1",
                 status=AgentStatus.ACTIVE,
                 fingerprint="1" * 64,
-                agent_token=token1,
+                agent_token_hash=hash_token(token1),
             ),
             Agent(
                 id=agent2_id,
                 name="rollout-agent-2",
                 status=AgentStatus.ACTIVE,
                 fingerprint="2" * 64,
-                agent_token=token2,
+                agent_token_hash=hash_token(token2),
             ),
         ])
         await session.flush()

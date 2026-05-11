@@ -6,7 +6,17 @@ export function getApiKey(): string | null {
   return sessionStorage.getItem('admin_api_key');
 }
 
-/** Generic fetch with API key header. Throws on auth failure. */
+/** Custom error class with HTTP status code */
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
+/** Generic fetch with API key header. Throws ApiError on failure. */
 export async function apiFetch<T>(
   path: string,
   opts: RequestInit = {}
@@ -22,15 +32,19 @@ export async function apiFetch<T>(
     },
   });
 
-  if (res.status === 401 || res.status === 403) {
+  if (res.status === 401) {
     sessionStorage.removeItem('admin_api_key');
-    window.location.reload();
-    throw new Error('Unauthorized');
+    window.dispatchEvent(new CustomEvent('auth:expired'));
+    throw new ApiError(401, 'Authentication expired');
+  }
+
+  if (res.status === 403) {
+    throw new ApiError(403, 'Permission denied');
   }
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(body.detail || `API error ${res.status}`);
+    throw new ApiError(res.status, body.detail || `API error ${res.status}`);
   }
 
   if (res.status === 204) {
@@ -44,6 +58,20 @@ export async function apiFetch<T>(
 
   return JSON.parse(bodyText) as T;
 }
+
+// Query key factories for @tanstack/react-query
+export const queryKeys = {
+  dashboard: ['dashboard'] as const,
+  dashboardSummary: ['dashboard', 'summary'] as const,
+  dashboardHealth: ['dashboard', 'health'] as const,
+  dashboardAlerts: ['dashboard', 'alerts'] as const,
+  dashboardEvents: ['dashboard', 'events'] as const,
+  agents: (params?: Record<string, string>) => ['agents', params] as const,
+  agent: (id: string) => ['agent', id] as const,
+  certificates: (params?: Record<string, string>) => ['certificates', params] as const,
+  externalCerts: (params?: Record<string, string>) => ['externalCerts', params] as const,
+  auditLogs: (params?: Record<string, string>) => ['auditLogs', params] as const,
+};
 
 /** POST helper */
 export function apiPost<T>(path: string, body?: unknown): Promise<T> {
@@ -73,15 +101,19 @@ export async function apiUpload<T>(
     body: formData,
   });
 
-  if (res.status === 401 || res.status === 403) {
+  if (res.status === 401) {
     sessionStorage.removeItem('admin_api_key');
-    window.location.reload();
-    throw new Error('Unauthorized');
+    window.dispatchEvent(new CustomEvent('auth:expired'));
+    throw new ApiError(401, 'Authentication expired');
+  }
+
+  if (res.status === 403) {
+    throw new ApiError(403, 'Permission denied');
   }
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(body.detail || `API error ${res.status}`);
+    throw new ApiError(res.status, body.detail || `API error ${res.status}`);
   }
 
   const bodyText = await res.text();
