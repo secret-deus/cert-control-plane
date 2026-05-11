@@ -261,14 +261,23 @@ rollback 时写入：
 | `tests/test_kubernetes_secrets.py` | ✅ | Kubeconfig 解析、证书/私钥匹配、TLS Secret payload |
 | `tests/test_agent_deploy.py` | ✅ | Agent 本地写盘、reload、失败回滚 |
 | `tests/test_healthz.py` | ✅ | `/healthz` 路由与 SPA 回退顺序 |
+| `tests/test_config_guardrails.py` | ✅ | 必填 DATABASE_URL、DEV_MODE 生产护栏 |
+| `tests/test_rate_limit.py` | ✅ | 基础内存限流窗口 |
 
 **当前结果**:
 
-- `150 passed` (2026-05-09)
+- `158 passed` (2026-05-11)
 - 前端 `npm run lint`、`npm run build`、`npm run test:e2e` 已通过
 - Kubernetes Secret V1 已通过真实 minikube E2E 与三目标节点拓扑模拟
 - Python Agent live smoke 已通过
 - Go 二进制 Agent live smoke 已通过
+
+### 今日进展记录 (2026-05-11)
+
+- 补齐生产护栏：`DATABASE_URL` 必填，PostgreSQL 等非 SQLite 数据库禁止 `DEV_MODE=true`。
+- 增加基础限流：Agent 注册、注册状态轮询、Admin API 认证失败。
+- 拆分健康端点：`/healthz` 只做 liveness，`/readyz` 检查数据库，`/metrics` 暴露基础 Prometheus 文本指标。
+- 加固 Docker Compose：生产配置要求显式 `POSTGRES_PASSWORD`，增加重启策略、资源限制和 `/readyz` healthcheck，开发 CORS 移到 override。
 
 ### 今日进展记录 (2026-05-09)
 
@@ -284,6 +293,13 @@ rollback 时写入：
 - 安全审计检查通过
 - 前端 E2E 测试框架已就绪 (本地需后端服务运行，CI 已集成)
 - Registry/Store 测试补充完成 (test_registry_store.py)
+
+### 今日进展记录 (2026-05-11)
+
+- 修复 Go Agent PKCS8 RSA 私钥 fingerprint 解析问题。
+- 修复 Go Agent `.pem`/`.crt` 证书同级 key/chain 路径推导、cert/key/chain 回滚和私钥权限恢复。
+- 修复 Go Agent 注册时控制面临时不可用直接退出的问题，网络错误、429、5xx 会按 `poll_interval` 重试，4xx 配置类错误不重试。
+- 补充 Go Agent 单元测试并通过真实 Go edge live smoke，serial `37A568E00001EFA53240104083A864F25CD29706` 成功部署到 `https://localhost:9445`。
 
 ### 今日进展记录 (2026-04-03)
 
@@ -382,6 +398,7 @@ python3 -m pytest tests/ -v --cov=app --cov=agent
 - [x] 版本发布说明模板
 - [x] 前端子组件拆分完成（6 个组件） → Day 1-2 ✅
 - [x] 前端构建通过 → Day 1 ✅
+- [x] 生产护栏、基础限流、readyz/metrics、生产 compose 加固
 - [ ] Docker 镜像重建 → Day 3
 - [ ] 性能基准测试执行 → Day 3
 - [ ] Agent 端到端联调验证 → Day 3

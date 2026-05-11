@@ -2,10 +2,12 @@
 
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
+from fastapi.responses import PlainTextResponse
 
 from app.api.agent import router as agent_router
 from app.api.control import router as control_router
@@ -22,6 +24,7 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 _scheduler: AsyncIOScheduler | None = None
+_started_at = time.time()
 
 
 @asynccontextmanager
@@ -129,17 +132,38 @@ def create_app() -> FastAPI:
 
     @app.get("/healthz", tags=["health"], summary="健康检查")
     async def healthz():
+        return {"status": "ok"}
+
+    @app.get("/readyz", tags=["health"], summary="就绪检查")
+    async def readyz():
         db_ok = await check_db()
         return {
             "status": "ok" if db_ok else "degraded",
             "db": "connected" if db_ok else "unreachable",
         }
 
+    @app.get("/metrics", response_class=PlainTextResponse, tags=["health"], summary="Prometheus 指标")
+    async def metrics():
+        db_ok = await check_db()
+        uptime = max(0, time.time() - _started_at)
+        lines = [
+            "# HELP certcp_up Cert Control Plane process health.",
+            "# TYPE certcp_up gauge",
+            "certcp_up 1",
+            "# HELP certcp_db_up Database readiness status.",
+            "# TYPE certcp_db_up gauge",
+            f"certcp_db_up {1 if db_ok else 0}",
+            "# HELP certcp_uptime_seconds Process uptime in seconds.",
+            "# TYPE certcp_uptime_seconds gauge",
+            f"certcp_uptime_seconds {uptime:.0f}",
+        ]
+        return "\n".join(lines) + "\n"
+
     # SPA catch-all: serve index.html for all non-API routes (must be last)
     @app.get("/{path:path}", response_class=HTMLResponse, include_in_schema=False)
     async def spa_fallback(path: str):
         # Don't intercept API/docs routes
-        if path.startswith(("api/", "docs", "redoc", "openapi.json", "healthz")):
+        if path.startswith(("api/", "docs", "redoc", "openapi.json", "healthz", "readyz", "metrics")):
             return HTMLResponse(status_code=404, content="Not Found")
         index_path = os.path.join(static_dir, "index.html") if os.path.isdir(static_dir) else ""
         if os.path.exists(index_path):

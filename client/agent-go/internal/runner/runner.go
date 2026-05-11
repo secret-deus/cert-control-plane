@@ -3,7 +3,9 @@ package runner
 import (
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -101,9 +103,21 @@ func (r *Runner) ensureKeyPair() (string, error) {
 func (r *Runner) register(fingerprint string) error {
 	r.logger.Info("Starting TOFU registration", zap.String("name", r.config.AgentName))
 
-	resp, err := r.client.Register(fingerprint)
-	if err != nil {
-		return fmt.Errorf("registration request failed: %w", err)
+	var resp *client.RegisterResponse
+	for {
+		var err error
+		resp, err = r.client.Register(fingerprint)
+		if err == nil {
+			break
+		}
+		if !isRetryableRegistrationError(err) {
+			return fmt.Errorf("registration request failed: %w", err)
+		}
+		r.logger.Warn("Registration request failed, retrying",
+			zap.Duration("retry_after", r.config.PollInterval),
+			zap.Error(err),
+		)
+		time.Sleep(r.config.PollInterval)
 	}
 
 	r.logger.Info("Registration response",
@@ -120,6 +134,16 @@ func (r *Runner) register(fingerprint string) error {
 	}
 
 	return fmt.Errorf("unexpected registration status: %s", resp.Status)
+}
+
+func isRetryableRegistrationError(err error) bool {
+	var statusErr *client.HTTPStatusError
+	if !errors.As(err, &statusErr) {
+		return true
+	}
+	return statusErr.StatusCode == http.StatusRequestTimeout ||
+		statusErr.StatusCode == http.StatusTooManyRequests ||
+		statusErr.StatusCode >= http.StatusInternalServerError
 }
 
 func (r *Runner) pollUntilApproved(agentID, fingerprint string) error {
@@ -255,14 +279,12 @@ func readCertNotAfter(certPath string) (string, error) {
 
 func (r *Runner) deployCertUpdate(update client.CertUpdateItem) error {
 	certPath := update.LocalPath
-	keyPath := replaceExt(certPath, ".crt", ".key")
-	chainPath := replaceExt(certPath, ".crt", ".chain.crt")
+	keyPath, chainPath := certSiblingPaths(certPath)
 
 	// Backup existing files
-	oldCertPath := certPath + ".old"
-	oldKeyPath := keyPath + ".old"
-	_ = copyFile(certPath, oldCertPath)
-	_ = copyFile(keyPath, oldKeyPath)
+	certBackup := backupFile(certPath)
+	keyBackup := backupFile(keyPath)
+	chainBackup := backupFile(chainPath)
 
 	// Write new files
 	if err := os.MkdirAll(filepath.Dir(certPath), 0755); err != nil {
@@ -271,21 +293,22 @@ func (r *Runner) deployCertUpdate(update client.CertUpdateItem) error {
 
 	if update.CertPEM != nil {
 		if err := os.WriteFile(certPath, []byte(*update.CertPEM), 0644); err != nil {
-			restoreBackup(oldCertPath, certPath)
+			restoreBackups(certBackup, keyBackup, chainBackup)
 			return fmt.Errorf("failed to write cert: %w", err)
 		}
 	}
 
 	if update.KeyPEM != nil {
 		if err := os.WriteFile(keyPath, []byte(*update.KeyPEM), 0600); err != nil {
-			restoreBackup(oldCertPath, certPath)
+			restoreBackups(certBackup, keyBackup, chainBackup)
 			return fmt.Errorf("failed to write key: %w", err)
 		}
 	}
 
 	if update.ChainPEM != nil {
 		if err := os.WriteFile(chainPath, []byte(*update.ChainPEM), 0644); err != nil {
-			r.logger.Warn("Failed to write chain", zap.Error(err))
+			restoreBackups(certBackup, keyBackup, chainBackup)
+			return fmt.Errorf("failed to write chain: %w", err)
 		}
 	}
 
@@ -293,16 +316,14 @@ func (r *Runner) deployCertUpdate(update client.CertUpdateItem) error {
 	if r.config.NginxReloadCmd != "" {
 		cmd := exec.Command("sh", "-c", r.config.NginxReloadCmd)
 		if output, err := cmd.CombinedOutput(); err != nil {
-			restoreBackup(oldCertPath, certPath)
-			restoreBackup(oldKeyPath, keyPath)
+			restoreBackups(certBackup, keyBackup, chainBackup)
 			return fmt.Errorf("nginx reload failed: %w - %s", err, string(output))
 		}
 		r.logger.Info("Nginx reloaded")
 	}
 
 	// Clean up backups
-	os.Remove(oldCertPath)
-	os.Remove(oldKeyPath)
+	cleanupBackups(certBackup, keyBackup, chainBackup)
 
 	r.logger.Info("Cert deployed", zap.String("path", certPath))
 
@@ -325,12 +346,36 @@ func (r *Runner) deployCertUpdate(update client.CertUpdateItem) error {
 	return nil
 }
 
-func replaceExt(path, oldExt, newExt string) string {
-	n := len(path)
-	if n >= len(oldExt) && path[n-len(oldExt):] == oldExt {
-		return path[:n-len(oldExt)] + newExt
+func certSiblingPaths(certPath string) (string, string) {
+	ext := filepath.Ext(certPath)
+	base := certPath
+	if ext != "" {
+		base = certPath[:len(certPath)-len(ext)]
 	}
-	return path + newExt
+	return base + ".key", base + ".chain.crt"
+}
+
+type fileBackup struct {
+	target string
+	backup string
+	mode   os.FileMode
+	exists bool
+}
+
+func backupFile(path string) fileBackup {
+	backup := fileBackup{
+		target: path,
+		backup: path + ".old",
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return backup
+	}
+	backup.exists = true
+	backup.mode = info.Mode().Perm()
+	_ = copyFile(path, backup.backup)
+	_ = os.Chmod(backup.backup, backup.mode)
+	return backup
 }
 
 func copyFile(src, dst string) error {
@@ -341,8 +386,26 @@ func copyFile(src, dst string) error {
 	return os.WriteFile(dst, data, 0644)
 }
 
-func restoreBackup(backup, target string) {
-	if _, err := os.Stat(backup); err == nil {
-		_ = copyFile(backup, target)
+func restoreBackups(backups ...fileBackup) {
+	for _, backup := range backups {
+		restoreBackup(backup)
+	}
+}
+
+func restoreBackup(backup fileBackup) {
+	if backup.exists {
+		if _, err := os.Stat(backup.backup); err == nil {
+			_ = copyFile(backup.backup, backup.target)
+			_ = os.Chmod(backup.target, backup.mode)
+			_ = os.Remove(backup.backup)
+		}
+		return
+	}
+	_ = os.Remove(backup.target)
+}
+
+func cleanupBackups(backups ...fileBackup) {
+	for _, backup := range backups {
+		_ = os.Remove(backup.backup)
 	}
 }

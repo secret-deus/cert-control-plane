@@ -2,6 +2,7 @@ package client
 
 import (
 	"bytes"
+	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
@@ -96,6 +97,17 @@ type ReportCertsResponse struct {
 	Recorded int `json:"recorded"`
 }
 
+// HTTPStatusError is returned when the control plane responds with a non-2xx status.
+type HTTPStatusError struct {
+	StatusCode int
+	Status     string
+	Body       string
+}
+
+func (e *HTTPStatusError) Error() string {
+	return fmt.Sprintf("%s - %s", e.Status, e.Body)
+}
+
 // New creates a new ControlPlaneClient (no mTLS)
 func New(cfg *config.Config) (*ControlPlaneClient, error) {
 	// Configure TLS
@@ -152,7 +164,11 @@ func (c *ControlPlaneClient) Register(fingerprint string) (*RegisterResponse, er
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("registration failed: %s - %s", resp.Status, string(body))
+		return nil, &HTTPStatusError{
+			StatusCode: resp.StatusCode,
+			Status:     resp.Status,
+			Body:       string(body),
+		}
 	}
 
 	var result RegisterResponse
@@ -312,7 +328,11 @@ func ComputeFingerprint(keyPEM []byte) (string, error) {
 		if err2 != nil {
 			return "", fmt.Errorf("failed to parse private key: %w (pkcs1: %v)", err2, err)
 		}
-		pubDER, err2 := x509.MarshalPKIXPublicKey(keyAny.(*interface{}))
+		rsaKey, ok := keyAny.(*rsa.PrivateKey)
+		if !ok {
+			return "", fmt.Errorf("private key is not RSA: %T", keyAny)
+		}
+		pubDER, err2 := x509.MarshalPKIXPublicKey(&rsaKey.PublicKey)
 		if err2 != nil {
 			return "", fmt.Errorf("failed to marshal public key: %w", err2)
 		}

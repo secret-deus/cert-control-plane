@@ -33,7 +33,7 @@
 | GAP-1 | 性能基准测试执行 | P1 | Locust 框架就绪但未执行实际压测 |
 | GAP-2 | 预生产部署验证 | P1 | 检查清单已有，但需按目标生产配置完整跑一次 |
 | GAP-3 | Docker/镜像发布验证 | P1 | 前端重构与 K8s V1 后需重建镜像并做发布前 smoke |
-| GAP-4 | 投产阻塞项修复 | P0 | 仍需处理 DEV_MODE 生产护栏、限流、metrics、生产 compose 等投产评估项 |
+| GAP-4 | 投产阻塞项修复 | P0 | 已完成：DEV_MODE 生产护栏、基础限流、metrics/readiness、生产 compose 加固、Go Agent PKCS8/回滚/注册重试与真实 smoke |
 
 ---
 
@@ -160,11 +160,12 @@ docker compose down && docker compose up -d
 
 **验证步骤**:
 1. `curl -k https://localhost:443/healthz` → 200
-2. `curl -k https://localhost:8443/healthz` → 200
-3. 浏览器打开 `https://localhost/` → Dashboard 页面正常渲染
-4. 检查 Dashboard KPI 卡片、告警表格、Agent 健康、趋势图均显示数据
-5. 证书管理页筛选和详情抽屉正常工作
-6. Agent 管理页列表和详情页正常工作
+2. `curl -k https://localhost:443/readyz` → 200 且 DB connected
+3. `curl -k https://localhost:443/metrics` → 包含 `certcp_up 1`
+4. 浏览器打开 `https://localhost/` → Dashboard 页面正常渲染
+5. 检查 Dashboard KPI 卡片、告警表格、Agent 健康、趋势图均显示数据
+6. 证书管理页筛选和详情抽屉正常工作
+7. Agent 管理页列表和详情页正常工作
 
 #### 任务 3.2: 性能基准测试执行 [P1, 2h]
 

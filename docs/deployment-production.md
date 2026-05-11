@@ -139,7 +139,7 @@ cd cert-control-plane
 
 # 生成配置
 cp .env.example .env
-# 编辑 .env 填入生产配置
+# 编辑 .env 填入生产配置，至少包含 POSTGRES_PASSWORD、ADMIN_API_KEY、CA_KEY_ENCRYPTION_KEY
 ```
 
 2. **启动服务**
@@ -150,6 +150,8 @@ docker compose up -d
 # 验证服务状态
 docker compose ps
 curl http://localhost:8080/healthz
+curl http://localhost:8080/readyz
+curl http://localhost:8080/metrics
 ```
 
 3. **数据库迁移**
@@ -180,6 +182,7 @@ pip install -e ".[dev]"
 export DATABASE_URL="postgresql+asyncpg://certcp:password@db-host:5432/certcp"
 export CA_KEY_ENCRYPTION_KEY="your-fernet-key"
 export ADMIN_API_KEY="your-admin-api-key"
+export DEV_MODE="false"
 
 # 数据库迁移
 alembic upgrade head
@@ -196,7 +199,8 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
 
 - 运维网络可访问 `/dashboard`、`/docs` 和 `/api/control/*`
 - Agent 节点网络可访问 `/api/agent/*`
-- `/api/agent/register` 建议配合来源限制、限流和审计使用
+- `/healthz` 用作 liveness，`/readyz` 用作数据库 readiness，`/metrics` 可供 Prometheus scrape
+- `/api/agent/register` 已有应用内基础限流，生产多实例仍建议配合来源限制、网关限流和审计使用
 
 ## Agent 部署
 

@@ -96,10 +96,23 @@ JSON 格式日志包含以下字段：
 
 Cert Control Plane 提供以下监控端点：
 
-#### 健康检查
+#### Liveness
 
 ```bash
 GET /healthz
+```
+
+响应示例：
+```json
+{
+  "status": "ok"
+}
+```
+
+#### Readiness
+
+```bash
+GET /readyz
 ```
 
 响应示例：
@@ -111,8 +124,19 @@ GET /healthz
 ```
 
 状态值：
-- `ok`: 服务正常
+- `ok`: 应用和数据库连接正常
 - `degraded`: 服务降级（如数据库连接失败）
+
+#### Prometheus 文本指标
+
+```bash
+GET /metrics
+```
+
+当前基础指标：
+- `certcp_up`: 应用进程健康状态
+- `certcp_db_up`: 数据库 readiness 状态
+- `certcp_uptime_seconds`: 应用运行时长
 
 #### Dashboard API
 
@@ -133,24 +157,9 @@ GET /healthz
    GET /api/control/dashboard/external-certs-expiry?days=30
    ```
 
-### Prometheus 集成 (可选)
+### Prometheus 集成
 
-如果需要 Prometheus 监控，可以添加 `prometheus-fastapi-instrumentator`：
-
-1. 安装依赖：
-   ```bash
-   pip install prometheus-fastapi-instrumentator
-   ```
-
-2. 在 `app/main.py` 中添加：
-   ```python
-   from prometheus_fastapi_instrumentator import Instrumentator
-
-   app = create_app()
-   Instrumentator().instrument(app).expose(app)
-   ```
-
-3. 访问 `/metrics` 端点获取指标
+Prometheus 可直接 scrape `/metrics`。当前端点提供基础进程和数据库状态指标；证书过期、Agent 在线数、Rollout pending 数等业务指标仍建议作为后续增强。
 
 ## 告警规则
 

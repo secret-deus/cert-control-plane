@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.core.audit import write_audit
 from app.core.crypto import decrypt_key
+from app.core.rate_limit import check_rate_limit, client_ip
 from app.database import get_db
 from app.models import (
     Agent,
@@ -189,6 +190,12 @@ async def register_agent(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
+    settings = get_settings()
+    check_rate_limit(
+        f"agent-register:{client_ip(request)}",
+        limit=settings.rate_limit_agent_register_per_minute,
+    )
+
     # Check if agent name already exists
     result = await db.execute(select(Agent).where(Agent.name == body.name))
     existing = result.scalar_one_or_none()
@@ -302,8 +309,15 @@ async def register_agent(
 async def register_status(
     agent_id: str,
     fingerprint: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
+    settings = get_settings()
+    check_rate_limit(
+        f"agent-register-status:{client_ip(request)}",
+        limit=settings.rate_limit_register_status_per_minute,
+    )
+
     import uuid as _uuid
     try:
         agent_uuid = _uuid.UUID(agent_id)

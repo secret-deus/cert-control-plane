@@ -24,25 +24,29 @@ compose_edge() {
   fi
 }
 
-echo "[1/4] rebuilding control plane and edge node"
-compose_base up -d --build db app
-for attempt in $(seq 1 60); do
-  if compose_base exec -T app python - <<'PY' >/dev/null 2>&1
+wait_control_plane() {
+  for attempt in $(seq 1 60); do
+    if compose_base exec -T app python - <<'PY' >/dev/null 2>&1
 import urllib.request
 
 with urllib.request.urlopen("http://localhost:8000/healthz", timeout=2) as resp:
     raise SystemExit(0 if resp.status == 200 else 1)
 PY
-  then
-    break
-  fi
-  if [ "$attempt" -eq 60 ]; then
-    echo "control plane did not become healthy" >&2
-    compose_base logs app --tail=120 >&2 || true
-    exit 1
-  fi
-  sleep 2
-done
+    then
+      return 0
+    fi
+    if [ "$attempt" -eq 60 ]; then
+      echo "control plane did not become healthy" >&2
+      compose_base logs app --tail=120 >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+}
+
+echo "[1/4] rebuilding control plane and edge node"
+compose_base up -d --build db app
+wait_control_plane
 
 echo "[2/4] stopping stale edge node and resetting smoke agent identity"
 compose_edge rm -sf "$EDGE_SERVICE" >/dev/null 2>&1 || true
@@ -87,6 +91,7 @@ if deleted == 0:
 PY
 
 compose_edge up -d --build "$EDGE_SERVICE"
+wait_control_plane
 
 echo "[3/4] approving agent, generating cert, uploading and assigning"
 RESULT=$(

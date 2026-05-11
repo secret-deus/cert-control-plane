@@ -22,7 +22,15 @@ os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 # Disable dev mode so auth is enforced during tests
 os.environ["DEV_MODE"] = "false"
 
+from app.core.rate_limit import reset_rate_limits  # noqa: E402
 from app.models import Agent, AgentStatus, ExternalCertificate  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def isolated_rate_limits():
+    reset_rate_limits()
+    yield
+    reset_rate_limits()
 
 
 @pytest.fixture()
