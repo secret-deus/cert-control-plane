@@ -318,67 +318,40 @@ journalctl -u cert-agent -f   # 实时日志
 cert-control-plane/
 ├── startup.ps1                 # ⚡ 一键启动 (Windows)
 ├── start.sh                    # ⚡ 一键启动 (Linux/macOS)
-├── app/                        # 控制面板后端
-│   ├── main.py                 # FastAPI 入口 + lifespan
-│   ├── config.py               # 环境变量配置 (pydantic-settings)
-│   ├── database.py             # async SQLAlchemy 引擎 + session
-│   ├── models.py               # ORM 模型 (Agent/ExternalCertificate/Assignment/Rollout/AuditLog)
-│   ├── schemas.py              # Pydantic 请求/响应 schema
-│   ├── api/
-│   │   ├── agent.py            # Agent API (register/register-status/heartbeat/fetch-certs)
-│   │   ├── control.py          # Control API (agents/external-certs/assignments/certs/rollouts/audit)
-│   │   └── dashboard.py        # Dashboard API (summary/agents-health/certs-expiry/events/alerts)
-│   ├── core/
-│   │   ├── crypto.py           # PEM 处理、Fernet 加解密
-│   │   ├── security.py         # Admin API Key 校验、Agent Token 生成
-│   │   └── audit.py            # 审计日志写入
-│   ├── registry/
-│   │   └── store.py            # 当前证书查询与撤销辅助
-│   └── orchestrator/
-│       └── rollout.py          # Rollout 编排 (批次推进/暂停/恢复/回滚)
-├── frontend/                   # React Web Dashboard (Vite + TailwindCSS)
-│   ├── src/
-│   │   ├── App.tsx             # 主应用 (认证状态管理)
-│   │   ├── index.css           # 深色玻璃拟物风格主题
-│   │   └── components/
-│   │       ├── AuthScreen.tsx   # API Key 登录界面
-│   │       └── Dashboard.tsx    # 仪表盘主面板
-│   ├── vite.config.ts          # Vite 配置 (含 API 代理)
-│   └── package.json
-├── agent/                      # nginx 节点 Agent (独立部署)
-│   ├── __main__.py             # 入口 (python -m agent)
-│   ├── config.py               # Agent 配置 (环境变量)
-│   ├── crypto.py               # 节点密钥生成与指纹计算
-│   ├── client.py               # httpx 客户端
-│   ├── runner.py               # 主循环 (注册/心跳/拉取/部署)
-│   ├── deployer.py             # 证书部署到 nginx + reload
-│   ├── cert-agent.service      # systemd 服务文件
-│   ├── agent.env.example       # 环境变量模板
-│   └── scripts/
-│       ├── install.sh          # ⚡ Agent 一键安装 (Linux)
-│       └── install.ps1         # ⚡ Agent 一键安装 (Windows)
-├── tests/                      # 回归测试 (无需数据库)
-│   ├── conftest.py             # 测试 fixtures
-│   ├── test_agent_api.py       # Agent API 端到端测试
-│   ├── test_agent_auth.py      # Agent 认证测试
-│   ├── test_audit_actions.py   # 审计动作测试
-│   ├── test_dashboard.py       # Dashboard API 测试
-│   ├── test_installer.py       # 安装脚本测试
-│   ├── test_migration.py       # 迁移文件测试
-│   ├── test_rollout.py         # Rollout 编排器测试
-│   └── test_serial_hex.py      # 证书序列号测试
-├── alembic/                    # 数据库迁移
-│   ├── env.py
-│   └── versions/
-│       ├── 001_initial.py      # 初始 schema
-│       └── 002_serial_hex_compat.py  # 旧版 DB 兼容迁移
+├── server/                     # 控制面：FastAPI + React 静态资源
+│   ├── app/
+│   │   ├── main.py             # FastAPI 入口、Dashboard、health/ready/metrics
+│   │   ├── config.py           # 环境变量配置与生产护栏
+│   │   ├── models.py           # ORM 模型
+│   │   ├── schemas.py          # Pydantic 请求/响应 schema
+│   │   ├── api/
+│   │   │   ├── agent.py        # Agent API
+│   │   │   ├── dashboard.py    # Dashboard API
+│   │   │   └── control/        # Control API 拆分模块
+│   │   ├── core/               # 加密、安全、审计、限流、metrics
+│   │   ├── registry/           # 当前证书查询与撤销辅助
+│   │   ├── services/           # 归档解析、Kubernetes Secret 执行器
+│   │   └── orchestrator/       # Rollout 编排
+│   ├── frontend/               # React Web Dashboard (Vite + TailwindCSS)
+│   ├── tests/                  # 后端回归测试
+│   ├── alembic/                # 数据库迁移 001..008
+│   ├── Dockerfile              # 单端口生产镜像
+│   └── pyproject.toml          # 控制面依赖
+├── client/
+│   ├── agent/                  # Python Agent
+│   ├── agent-go/               # Go Agent，推荐生产优先验证
+│   ├── agent-rust/             # Rust Agent，当前实验性
+│   └── tests/                  # Python Agent 测试
+├── k8s/minikube/               # 本地 minikube 部署清单
 ├── scripts/
-│   └── init_ca.py              # CA + 服务端证书生成工具
+│   ├── smoke-test.sh           # 生产镜像 smoke
+│   ├── run-perf-test.sh        # 性能测试入口
+│   └── minikube-*.sh           # minikube/K8s Secret 真实测试脚本
+├── tools/                      # Agent smoke、真实 nginx 矩阵、Locust 性能测试
+├── docs/                       # 部署、运维、安全、测试文档
+├── specs/                      # 方案、投产评估、真实测试报告和截图
 ├── docker-compose.yml
-├── Dockerfile
-├── pyproject.toml              # 控制面板依赖
-├── alembic.ini
-└── .env.example
+└── PLAN.md
 ```
 
 ## 安全设计
@@ -399,11 +372,12 @@ cert-control-plane/
 | `CA_KEY_ENCRYPTION_KEY` | 是 | - | Fernet 密钥 (加密存储私钥) |
 | `ADMIN_API_KEY` | 是 | - | Control API 认证密钥 |
 | `CORS_ORIGINS` | 否 | `[]` | CORS 允许的来源 (JSON 数组，如 `["https://example.com"]`) |
-| `DEV_MODE` | 否 | `false` | 本地调试模式，允许部分 Agent 鉴权旁路 |
+| `DEV_MODE` | 否 | `false` | 本地调试模式；非 SQLite 数据库禁止开启 |
 | `ROLLOUT_INTERVAL_SECONDS` | 否 | `30` | 编排器轮询间隔 |
 | `DEFAULT_BATCH_SIZE` | 否 | `10` | Rollout 默认批大小 |
 | `ROLLOUT_ITEM_TIMEOUT_MINUTES` | 否 | `10` | Rollout item 超时时间 |
-| `POSTGRES_PASSWORD` | 否 | `postgres` | Docker PostgreSQL 密码 (生产环境必须修改) |
+| `POSTGRES_PASSWORD` | Docker Compose 必填 | - | Docker PostgreSQL 密码，禁止使用默认弱口令 |
+| `REDIS_URL` | 否 | - | 可选；配置后启用跨实例分布式限流 |
 
 ## 数据库迁移
 
@@ -433,12 +407,17 @@ GROUP BY serial_hex HAVING COUNT(*) > 1;  -- 应返回空
 
 ```bash
 # 安装依赖
+cd server
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -e ".[dev]"
 
 # 启动数据库
+cd ..
 docker compose up -d db
 
 # 运行迁移
+cd server
 alembic upgrade head
 
 # 启动开发服务器
@@ -448,14 +427,14 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 pytest tests/ -v
 ```
 
-如果要验证容器化部署链路，优先按 [docs/deployment-compose.md](/Users/xhang/Documents/github.com/cert-control-plane/docs/deployment-compose.md) 执行 `docker compose up -d --build`、`ps`、日志和健康检查。
+如果要验证容器化部署链路，优先按 [docs/deployment-compose.md](docs/deployment-compose.md) 执行 `docker compose up -d --build`、`ps`、日志和健康检查。
 
 ### 前端开发 (Web Dashboard)
 
-前端位于 `frontend/` 目录，采用了 React + Vite + TailwindCSS 架构。
+前端位于 `server/frontend/` 目录，采用 React + Vite + TailwindCSS。
 
 ```bash
-cd frontend
+cd server/frontend
 npm install
 
 # 启动带热重载的开发服务器 (默认 http://localhost:5173)

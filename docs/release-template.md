@@ -158,6 +158,7 @@ sudo cert-agent
 git pull origin main
 
 # Install dependencies
+cd server
 pip install -e ".[dev]"
 
 # Run migrations (if any)
@@ -170,7 +171,7 @@ sudo systemctl restart cert-control-plane
 #### Frontend
 ```bash
 # Build new frontend
-cd frontend
+cd server/frontend
 npm install
 npm run build
 ```

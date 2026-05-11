@@ -268,10 +268,14 @@ git log --oneline -1
 git pull origin main
 
 # 3. 检查依赖
+cd server
 pip install -e ".[dev]"
-cd frontend && npm install && npm run build
+cd ..
+npm --prefix server/frontend install
+npm --prefix server/frontend run build
 
 # 4. 运行测试
+cd server
 python3 -m pytest tests/ -v
 ```
 
@@ -288,14 +292,15 @@ cd /opt/cert-control-plane
 git pull origin main
 
 # 4. 更新依赖
+cd server
 pip install -e .
 
 # 5. 运行迁移
 alembic upgrade head
 
 # 6. 构建前端
-cd frontend
-npm run build
+cd ..
+npm --prefix server/frontend run build
 
 # 7. 启动服务
 sudo systemctl start cert-control-plane
