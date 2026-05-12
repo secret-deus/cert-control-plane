@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -292,7 +293,7 @@ func (r *Runner) deployCertUpdate(update client.CertUpdateItem) error {
 	}
 
 	if update.CertPEM != nil {
-		if err := os.WriteFile(certPath, []byte(*update.CertPEM), 0644); err != nil {
+		if err := os.WriteFile(certPath, []byte(fullchainPEM(*update.CertPEM, update.ChainPEM)), 0644); err != nil {
 			restoreBackups(certBackup, keyBackup, chainBackup)
 			return fmt.Errorf("failed to write cert: %w", err)
 		}
@@ -305,11 +306,9 @@ func (r *Runner) deployCertUpdate(update client.CertUpdateItem) error {
 		}
 	}
 
-	if update.ChainPEM != nil {
-		if err := os.WriteFile(chainPath, []byte(*update.ChainPEM), 0644); err != nil {
-			restoreBackups(certBackup, keyBackup, chainBackup)
-			return fmt.Errorf("failed to write chain: %w", err)
-		}
+	if err := os.Remove(chainPath); err != nil && !os.IsNotExist(err) {
+		restoreBackups(certBackup, keyBackup, chainBackup)
+		return fmt.Errorf("failed to remove chain sidecar: %w", err)
 	}
 
 	// Reload nginx
@@ -353,6 +352,14 @@ func certSiblingPaths(certPath string) (string, string) {
 		base = certPath[:len(certPath)-len(ext)]
 	}
 	return base + ".key", base + ".chain.crt"
+}
+
+func fullchainPEM(certPEM string, chainPEM *string) string {
+	fullchain := strings.TrimSpace(certPEM) + "\n"
+	if chainPEM == nil {
+		return fullchain
+	}
+	return fullchain + strings.TrimSpace(*chainPEM) + "\n"
 }
 
 type fileBackup struct {

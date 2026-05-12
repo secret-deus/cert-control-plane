@@ -273,7 +273,7 @@ export default function CertManagementPage() {
       }
 
       const baseDir = agent.cert_paths[0].replace(/\/[^/]+$/, '');
-      const localPath = `${baseDir}/${selectedCert.subject_cn}.crt`;
+      const localPath = `${baseDir}/${selectedCert.subject_cn}.pem`;
 
       try {
         await apiPost(`/agents/${agent.id}/assign-cert`, {

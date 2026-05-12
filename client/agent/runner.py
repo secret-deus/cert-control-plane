@@ -250,16 +250,14 @@ def _deploy_cert_update(config: AgentConfig, update: dict) -> None:
         p.parent.mkdir(parents=True, exist_ok=True)
 
         if cert_pem:
-            p.write_text(cert_pem)
+            p.write_text(_fullchain_pem(cert_pem, chain_pem))
             p.chmod(0o644)
 
         if key_pem:
             key_path.write_text(key_pem)
             key_path.chmod(0o600)
 
-        if chain_pem:
-            chain_path.write_text(chain_pem)
-            chain_path.chmod(0o644)
+        chain_path.unlink(missing_ok=True)
 
         # Reload nginx
         import subprocess
@@ -301,3 +299,10 @@ def _restore(backup: Path, target: Path) -> None:
     target.write_bytes(backup.read_bytes())
     target.chmod(backup.stat().st_mode)
     backup.unlink(missing_ok=True)
+
+
+def _fullchain_pem(cert_pem: str, chain_pem: str | None) -> str:
+    cert = cert_pem.strip() + "\n"
+    if not chain_pem:
+        return cert
+    return cert + chain_pem.strip() + "\n"

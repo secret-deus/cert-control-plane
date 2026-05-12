@@ -207,7 +207,8 @@ impl Runner {
         let chain_path = derive_chain_path(&cert_path);
 
         if let Some(cert_pem) = &update.cert_pem {
-            crypto::save_certificate(cert_pem, &cert_path)
+            let fullchain = fullchain_pem(cert_pem, update.chain_pem.as_deref());
+            crypto::save_certificate(&fullchain, &cert_path)
                 .with_context(|| format!("Failed to write cert to {:?}", cert_path))?;
         }
 
@@ -216,9 +217,9 @@ impl Runner {
                 .with_context(|| format!("Failed to write key to {:?}", key_path))?;
         }
 
-        if let Some(chain_pem) = &update.chain_pem {
-            crypto::save_certificate(chain_pem, &chain_path)
-                .with_context(|| format!("Failed to write chain to {:?}", chain_path))?;
+        if chain_path.exists() {
+            fs::remove_file(&chain_path)
+                .with_context(|| format!("Failed to remove chain sidecar {:?}", chain_path))?;
         }
 
         info!(path = %update.local_path, not_after = ?update.not_after, "Cert deployed");
@@ -259,6 +260,15 @@ fn derive_chain_path(cert_path: &Path) -> PathBuf {
         .to_string_lossy();
     let parent = cert_path.parent().unwrap_or_else(|| Path::new("."));
     parent.join(format!("{}.chain.crt", stem))
+}
+
+fn fullchain_pem(cert_pem: &str, chain_pem: Option<&str>) -> String {
+    let mut fullchain = format!("{}\n", cert_pem.trim());
+    if let Some(chain) = chain_pem {
+        fullchain.push_str(chain.trim());
+        fullchain.push('\n');
+    }
+    fullchain
 }
 
 /// Save a private key with 0600 permissions on Unix

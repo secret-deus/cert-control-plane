@@ -109,6 +109,57 @@ func TestDeployCertUpdateRestoresCertKeyAndChainOnReloadFailure(t *testing.T) {
 	}
 }
 
+func TestDeployCertUpdateWritesFullchainToTargetCertPath(t *testing.T) {
+	reportServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/agent/report-certs" {
+			t.Fatalf("unexpected report path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"recorded":1}`))
+	}))
+	defer reportServer.Close()
+
+	dir := t.TempDir()
+	certPath := filepath.Join(dir, "*.qshealth.com.pem")
+	keyPath := filepath.Join(dir, "*.qshealth.com.key")
+	chainPath := filepath.Join(dir, "*.qshealth.com.chain.crt")
+
+	cfg := &config.Config{ControlPlaneURL: reportServer.URL}
+	cpClient, err := client.New(cfg)
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+	r := New(cfg, zap.NewNop())
+	r.client = cpClient
+
+	err = r.deployCertUpdate(client.CertUpdateItem{
+		LocalPath: certPath,
+		CertPEM:   strPtr("leaf-cert"),
+		KeyPEM:    strPtr("private-key"),
+		ChainPEM:  strPtr("chain-cert"),
+	})
+	if err != nil {
+		t.Fatalf("deploy cert update: %v", err)
+	}
+
+	assertFile := func(path, want string) {
+		t.Helper()
+		got, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		if string(got) != want {
+			t.Fatalf("content for %s: got %q want %q", path, string(got), want)
+		}
+	}
+
+	assertFile(certPath, "leaf-cert\nchain-cert\n")
+	assertFile(keyPath, "private-key")
+	if _, err := os.Stat(chainPath); !os.IsNotExist(err) {
+		t.Fatalf("chain sidecar %s should not be written, err=%v", chainPath, err)
+	}
+}
+
 func TestRegisterRetriesUntilControlPlaneAcceptsRequest(t *testing.T) {
 	var attempts int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -265,7 +265,7 @@ export default function CertDetailDrawer({
                 {agents.filter(a => a.status === 'active').map((agent) => {
                   const hasPaths = !!agent.cert_paths?.length;
                   const baseDir = agent.cert_paths?.[0]?.replace(/\/[^/]+$/, '') || null;
-                  const localPath = baseDir ? `${baseDir}/${selectedCert.subject_cn}.crt` : null;
+                  const localPath = baseDir ? `${baseDir}/${selectedCert.subject_cn}.pem` : null;
                   const checked = selectedAgentIds.has(agent.id);
 
                   return (

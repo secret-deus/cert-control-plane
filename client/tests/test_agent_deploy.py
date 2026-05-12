@@ -37,9 +37,9 @@ def test_deploy_cert_update_success(tmp_path: Path):
         _deploy_cert_update(_make_config("reload-ok"), update)
 
     run_mock.assert_called_once()
-    assert _read(local_path) == "new-cert"
+    assert _read(local_path) == "new-cert\nnew-chain\n"
     assert _read(key_path) == "new-key"
-    assert _read(chain_path) == "new-chain"
+    assert not chain_path.exists()
     assert not local_path.with_suffix(".crt.old").exists()
     assert not key_path.with_suffix(".key.old").exists()
     assert not chain_path.with_suffix(".chain.crt.old").exists()

@@ -190,11 +190,21 @@ export default function KubernetesPage() {
         const exists = current && assignmentData.items.some((item) => item.id === current);
         return exists ? current : assignmentData.items[0]?.id ?? null;
       });
-      setAssignmentForm((current) => ({
-        ...current,
-        cluster_id: current.cluster_id || clusterData.items[0]?.id || '',
-        external_cert_id: current.external_cert_id || certData.items[0]?.id || '',
-      }));
+      setAssignmentForm((current) => {
+        const clusterId = current.cluster_id || clusterData.items[0]?.id || '';
+        const cluster = clusterData.items.find((item) => item.id === clusterId);
+        const currentNamespace = current.namespace.trim();
+        const namespace =
+          !currentNamespace || currentNamespace === 'default'
+            ? cluster?.default_namespace || current.namespace || 'default'
+            : current.namespace;
+        return {
+          ...current,
+          cluster_id: clusterId,
+          namespace,
+          external_cert_id: current.external_cert_id || certData.items[0]?.id || '',
+        };
+      });
     } catch (error) {
       setActionError(error instanceof Error ? error.message : '读取 Kubernetes 数据失败');
     } finally {
@@ -235,7 +245,7 @@ export default function KubernetesPage() {
       });
       setSelectedAssignmentId(created.id);
       setAssignmentForm((current) => ({ ...current, secret_name: '' }));
-      setActionMessage('Assignment saved');
+      setActionMessage('Assignment saved. Run dry-run and confirm to write the Secret.');
       await fetchData();
     } catch (error) {
       setActionError(error instanceof Error ? error.message : '保存 Assignment 失败');
@@ -427,7 +437,14 @@ export default function KubernetesPage() {
                 <select
                   required
                   value={assignmentForm.cluster_id}
-                  onChange={(event) => setAssignmentForm((current) => ({ ...current, cluster_id: event.target.value }))}
+                  onChange={(event) => {
+                    const cluster = clusters.find((item) => item.id === event.target.value);
+                    setAssignmentForm((current) => ({
+                      ...current,
+                      cluster_id: event.target.value,
+                      namespace: cluster?.default_namespace || current.namespace,
+                    }));
+                  }}
                   className="input-field w-full"
                 >
                   <option value="">Select cluster</option>
@@ -487,7 +504,7 @@ export default function KubernetesPage() {
                 <div className="mt-5 grid grid-cols-2 gap-2">
                   <button type="button" onClick={() => runDryRun('deploy')} className="btn-primary inline-flex items-center justify-center gap-2">
                     <Play size={15} />
-                    Dry run
+                    Dry run deploy
                   </button>
                   <button type="button" onClick={validateAssignment} className="btn-secondary inline-flex items-center justify-center gap-2">
                     <RefreshCw size={15} />
