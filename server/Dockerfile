@@ -22,7 +22,7 @@ WORKDIR /app
 
 # Install Python dependencies first (cache layer)
 COPY pyproject.toml .
-RUN pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir .
 
 # Copy application code
 COPY alembic/ alembic/
